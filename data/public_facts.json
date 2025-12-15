@@ -1,0 +1,111 @@
+{
+  "source": {
+    "url": "https://nielseriknandal.com/",
+    "scraped_at_utc": "2025-12-15",
+    "note": "augmented with user-provided personal facts"
+  },
+  "nav": {
+    "home": "/",
+    "blog": "/blog",
+    "projects": "/projects",
+    "braindumps": "/braindumps",
+    "cv": "/cv"
+  },
+  "projects_preview": [
+    {
+      "path": "/projects/nexus",
+      "title": "Nexus",
+      "summary": "Reading-first knowledge management with semantic search and persistent anchoring"
+    },
+    {
+      "path": "/projects/suno-demo",
+      "title": "Suno Session Lab: turning clip generation into a navigable space",
+      "summary": "Turns music generation into a navigable space, layering LLM labeling over CLAP/embedding-driven clustering and centroid-guided regeneration"
+    },
+    {
+      "path": "/projects/factory-simulator",
+      "title": "Factory Simulator",
+      "summary": "Multi-agent LLM orchestration with deterministic factory scheduling simulation"
+    },
+    {
+      "path": "/projects/makemore",
+      "title": "Makemore",
+      "summary": "Character-level language models following Karpathy's Zero to Hero"
+    },
+    {
+      "path": "/projects/fractal-chat",
+      "title": "Fractal Chat",
+      "summary": "Chat-first reader that ingests URLs/PDFs/EPUBs and stays grounded"
+    }
+  ],
+  "skills": {
+    "languages": ["Python", "TypeScript", "SQL"],
+    "backend": ["FastAPI", "Alembic", "SQLAlchemy", "SQLModel", "PostgreSQL", "Redis", "Celery", "Express"],
+    "ai_ml": ["Pytorch", "Scikit-learn", "Pandas", "Numpy", "RAG", "LangGraph", "Agent Orchestration"],
+    "frontend": ["React", "Next.js", "TanStack Query", "Tailwind", "Vite"],
+    "tools": ["Docker", "Git", "JSON", "Linux", "Bash", "Make"]
+  },
+  "contact": {
+    "note": "Looking to hire? I'm currently available for full-time opportunities.",
+    "links": {
+      "cv": "/cv",
+      "github": "https://github.com/NielsdaWheelz",
+      "twitter": "https://x.com/the_powertool",
+      "linkedin": "https://www.linkedin.com/in/nielseriknandal/"
+    }
+  },
+  "personal": {
+    "sports": {
+      "hockey": "semi-pro",
+      "soccer": "semi-pro"
+    },
+    "music": {
+      "piano": {
+        "level": "great classical pianist",
+        "composers": ["chopin", "rachmaninoff", "debussy", "beethoven", "satie"]
+      },
+      "bass": {
+        "level": "ok bassist",
+        "influences": ["joe dart", "vulfpeck"]
+      },
+      "trumpet": {
+        "level": "erstwhile trumpeter",
+        "style": "jazz standards"
+      }
+    },
+    "worldview": ["rationalist", "postrationalist"],
+    "traits": [
+      "quiet", "shy", "soft-spoken", "brilliant", "understated", "humble",
+      "kind", "generous", "diligent", "temperate", "patient", "hot", "strong"
+    ],
+    "lifestyle": {
+      "gym": "loves it",
+      "cooking": "elite cook"
+    },
+    "relationship": {
+      "girlfriend": "jessica",
+      "girlfriend_location": "toronto"
+    },
+    "reading": {
+      "genres": ["noir", "philosophy", "history", "rationalist blogosphere", "fantasy", "literary fiction"],
+      "authors": [
+        "raymond chandler", "rene girard", "hubert dreyfus", "samo burja", "@eigenrobot",
+        "scott alexander", "@visakanv", "peter thiel", "tyler cowen", "friedrich nietzsche",
+        "marshall mcluhan", "ludwig wittgenstein", "walter benjamin", "jacques derrida",
+        "northrop frye", "carl jung", "plato", "aristotle", "michel foucault",
+        "claude levi-strauss", "emile durkheim", "fernand braudel", "gilles deleuze",
+        "felix guattari", "samuel johnson", "paul graham", "eliezer yudkowsky",
+        "curtis yarvin", "robin hanson", "james c. scott", "jonathan haidt", "peter turchin",
+        "patrick mckenzie", "patrick collison", "nick bostrom", "nick land", "david deutsch",
+        "balaji srinivasan", "william shakespeare", "jane austen", "dante alighieri",
+        "leo tolstoy", "rainer maria rilke", "fernando pessoa", "emily dickinson",
+        "michel de montaigne", "oscar wilde", "george orwell", "fyodor dostoevsky",
+        "james joyce", "james baldwin", "t. s. eliot", "homer", "franz kafka",
+        "miguel de cervantes", "john keats", "sophocles", "anton chekhov", "henrik ibsen",
+        "sappho", "herman melville", "marcel proust", "gabriel garcia marquez",
+        "william faulkner", "ibn khaldun", "steven erikson", "tolkien", "rothfuss",
+        "david foster wallace"
+      ]
+    }
+  }
+}
