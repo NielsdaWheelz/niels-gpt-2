@@ -1,4 +1,4 @@
-from src.chat_format import format_chat, extract_assistant_reply
+from niels_gpt.chat_format import extract_assistant_reply, format_chat
 
 
 def test_format_chat_basic():

@@ -1,5 +1,6 @@
 import torch
-from src.tokenizer import encode, decode
+
+from niels_gpt.tokenizer import decode, encode
 
 
 def test_encode_basic_ascii():
