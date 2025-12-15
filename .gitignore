@@ -209,3 +209,5 @@ __marimo__/
 # data
 roam-data/
 .roam-data/
+data/roam-data/
+data/.roam-data/
