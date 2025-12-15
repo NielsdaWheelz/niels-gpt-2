@@ -71,7 +71,7 @@ def _generate_dialogues(
                     raise ValueError("no {fact} patterns for about_niels_public")
                 assistant = _weighted_choice(rng, pool).format(fact=fact)
 
-            elif category_name == "about_niels_private_refuse":
+            elif category_name in {"about_niels_private_refuse", "about_niels_unknown"}:
                 assistant = _weighted_choice(rng, patterns)
 
             elif category_name == "site_navigation":
