@@ -83,14 +83,19 @@ goal: show the whole loop end-to-end with plain language. tokens here are just u
 ### data flow (mermaid)
 ```mermaid
 flowchart TD
-    CFG[config json -> ModelConfig + TrainConfig] --> STREAMS[build_sources: wiki/roam/primer -> cached byte streams]
-    STREAMS --> BATCH[get_batch: sample sources, slice to (x,y) pairs]
-    BATCH --> MODEL[GPT forward: embeddings -> L transformer blocks -> logits]
-    MODEL --> LOSS[cross-entropy vs targets]
-    LOSS --> OPT[AdamW step + lr_at_step warmup+cosine]
-    OPT --> CKPT[save_checkpoint: latest/best/periodic]
-    CKPT --> CHAT[chat_cli: load_checkpoint, format chat prompt]
-    MODEL --> GEN[generate_text: sample with temperature/top-k, stop sequences]
+    CFG["config json → ModelConfig + TrainConfig"]
+    STREAMS["build_sources → cached byte streams (wiki/roam/primer)"]
+    BATCH["get_batch → sample source + slice to (x,y)"]
+    MODEL["GPT forward → embeddings → transformer blocks → logits"]
+    LOSS["cross-entropy vs targets"]
+    OPT["AdamW step + lr_at_step"]
+    CKPT["save_checkpoint (latest/best/periodic)"]
+    CHAT["chat_cli → format chat prompt"]
+    GEN["generate_text → temperature/top-k + stop sequences"]
+
+    CFG --> STREAMS --> BATCH --> MODEL --> LOSS --> OPT --> CKPT
+    CKPT --> CHAT
+    MODEL --> GEN
     CHAT --> GEN
 ```
 
