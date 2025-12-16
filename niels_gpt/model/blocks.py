@@ -1,4 +1,4 @@
-"""Transformer building blocks: causal self-attention."""
+"""Transformer building blocks: causal self-attention, MLP, and transformer block."""
 
 import math
 
@@ -7,6 +7,35 @@ import torch.nn as nn
 
 import niels_gpt.model.rope as rope
 from niels_gpt.config import ModelConfig
+
+
+class MLP(nn.Module):
+    """
+    Feed-forward network with GELU activation.
+
+    Architecture: Linear(C, d_ff) -> GELU -> Linear(d_ff, C)
+    """
+
+    def __init__(self, cfg: ModelConfig):
+        super().__init__()
+        self.fc1 = nn.Linear(cfg.C, cfg.d_ff, bias=True)
+        self.gelu = nn.GELU()
+        self.fc2 = nn.Linear(cfg.d_ff, cfg.C, bias=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through MLP.
+
+        Args:
+            x: Input tensor, shape (B, T, C).
+
+        Returns:
+            Output tensor, shape (B, T, C).
+        """
+        x = self.fc1(x)
+        x = self.gelu(x)
+        x = self.fc2(x)
+        return x
 
 
 class CausalSelfAttention(nn.Module):
@@ -95,11 +124,11 @@ class CausalSelfAttention(nn.Module):
         )
 
         # Compute attention probabilities
-        attn = torch.softmax(scores, dim=-1)  # (B, H, T, T)
-        attn = self.attn_dropout(attn)
+        attn_probs = torch.softmax(scores, dim=-1)  # (B, H, T, T)
+        attn_dropped = self.attn_dropout(attn_probs)
 
         # Apply attention to values: (B, H, T, T) @ (B, H, T, D) -> (B, H, T, D)
-        out = attn @ v  # (B, H, T, D)
+        out = attn_dropped @ v  # (B, H, T, D)
 
         # Merge heads: (B, H, T, D) -> (B, T, H, D) -> (B, T, C)
         out = out.transpose(1, 2).reshape(B, T, C)
@@ -109,5 +138,77 @@ class CausalSelfAttention(nn.Module):
         out = self.resid_dropout(out)
 
         if return_attn:
-            return out, attn
+            return out, attn_probs  # Return pre-dropout probabilities
         return out
+
+
+class Block(nn.Module):
+    """
+    Pre-norm transformer block with causal self-attention and MLP.
+
+    Architecture:
+        x = x + dropout(attn(ln1(x)))
+        x = x + dropout(mlp(ln2(x)))
+    """
+
+    def __init__(self, cfg: ModelConfig):
+        super().__init__()
+        self.ln1 = nn.LayerNorm(cfg.C, eps=1e-5)
+        self.attn = CausalSelfAttention(cfg)
+        self.ln2 = nn.LayerNorm(cfg.C, eps=1e-5)
+        self.mlp = MLP(cfg)
+        self.dropout = nn.Dropout(cfg.dropout)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        return_attn: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass through transformer block.
+
+        Args:
+            x: Input tensor, shape (B, T, C).
+            return_attn: If True, return (output, attention_weights).
+
+        Returns:
+            If return_attn=False: output tensor (B, T, C).
+            If return_attn=True: tuple of (output, attention_weights) where
+                attention_weights has shape (B, H, T, T).
+        """
+        # Attention with residual
+        if return_attn:
+            attn_out, attn_probs = self.attn(self.ln1(x), return_attn=True)
+            x = x + self.dropout(attn_out)
+        else:
+            x = x + self.dropout(self.attn(self.ln1(x)))
+
+        # MLP with residual
+        x = x + self.dropout(self.mlp(self.ln2(x)))
+
+        if return_attn:
+            return x, attn_probs
+        return x
+
+
+def init_weights(module: nn.Module) -> None:
+    """
+    Initialize weights for GPT-style models.
+
+    Applies to:
+        - nn.Linear: weight ~ Normal(0, 0.02), bias = 0 (if present)
+        - nn.Embedding: weight ~ Normal(0, 0.02)
+        - nn.LayerNorm: weight = 1, bias = 0
+
+    Safe to use with model.apply(init_weights).
+    """
+    if isinstance(module, nn.Linear):
+        module.weight.data.normal_(mean=0.0, std=0.02)
+        if module.bias is not None:
+            module.bias.data.zero_()
+    elif isinstance(module, nn.Embedding):
+        module.weight.data.normal_(mean=0.0, std=0.02)
+    elif isinstance(module, nn.LayerNorm):
+        module.weight.data.fill_(1.0)
+        module.bias.data.zero_()
