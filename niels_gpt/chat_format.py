@@ -44,7 +44,7 @@ def extract_assistant_reply(generated_text: str) -> str:
 
     trailing empty "assistant: " prompts are ignored (common in generation).
     if "assistant: " is not present, raise ValueError.
-    if all assistant occurrences are empty, return "".
+    if all assistant occurrences are empty, print "(no reply)" and return "".
     """
     assistant_tag = "assistant: "
     turn_tags = ["\nsystem: ", "\nuser: ", "\nassistant: "]
@@ -83,4 +83,6 @@ def extract_assistant_reply(generated_text: str) -> str:
         if candidate:
             return candidate
 
+    # If empty, print "(no reply)" and return ""
+    print("(no reply)")
     return ""
