@@ -14,6 +14,7 @@ tiny llm-from-scratch project + a small chat primer.
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
+python tools/download_checkpoint.py   # download pretrained model
 pytest -q
 ```
 
@@ -22,6 +23,7 @@ pytest -q
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+python tools/download_checkpoint.py   # download pretrained model
 pytest -q
 ```
 
@@ -35,7 +37,8 @@ pytest -q
 - `configs/smoke.json`: 1k steps sanity run.
 - `configs/train.json`: 20k steps.
 - config schema: `{"model": {...}, "train": {...}}` overriding dataclasses in `niels_gpt.config`.
-- checkpoints land in `checkpoints/` (`latest.pt`, `best.pt`, periodic). the repo already has a few you can reuse.
+- checkpoints land in `checkpoints/` (`latest.pt`, `best.pt`, periodic).
+- pretrained checkpoint hosted on [Hugging Face](https://huggingface.co/nnandal/niels-gpt); run `python tools/download_checkpoint.py` to fetch.
 
 ### train
 ```bash
@@ -81,6 +84,8 @@ pytest -q
 - pick device explicitly: add `--device cpu|mps|cuda`
 - chat: `python -m niels_gpt.chat_cli --ckpt checkpoints/latest.pt --max-new-tokens 256 --temperature 0.9 --top-k 50 --seed 42`
 - generate primer: `python tools/generate_primer.py --seed 0 --n-per-category 30 --shuffle`
+- download checkpoint: `python tools/download_checkpoint.py`
+- upload checkpoint: `python tools/upload_checkpoint.py` (maintainer only)
 - tests: `pytest -q`
 
 ## walkthrough for newcomers

@@ -213,6 +213,5 @@ data/roam-data/
 data/.roam-data/
 data/cache/streams/
 
-# Model checkpoints (keep best.pt only)
-checkpoints/step_*.pt
-checkpoints/latest.pt
+# Model checkpoints (hosted on Hugging Face)
+checkpoints/*.pt
