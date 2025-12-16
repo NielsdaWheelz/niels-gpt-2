@@ -2,7 +2,7 @@
   "model": {},
   "train": {
     "seed": 42,
-    "B": 32,
+    "B": 16,
     "total_steps": 1000,
     "eval_every": 200,
     "eval_steps": 50,

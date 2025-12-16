@@ -2,10 +2,10 @@
   "model": {},
   "train": {
     "seed": 42,
-    "B": 32,
+    "B": 16,
     "total_steps": 20000,
-    "eval_every": 200,
-    "eval_steps": 100,
+    "eval_every": 1000,
+    "eval_steps": 25,
     "ckpt_every": 1000,
     "base_lr": 0.0003,
     "warmup_steps": 200,

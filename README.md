@@ -106,7 +106,7 @@ flowchart TD
 ```
 
 ### configs (all in `niels_gpt.config`)
-- `ModelConfig`: `V` vocab=256 bytes; `T` context window (default 512); `C` embedding width (512); `L` layers (8); `H` heads; `d_ff` MLP width; `dropout`; `rope_theta` rotary period.
+- `ModelConfig`: `V` vocab=256 bytes; `T` context window (default 384); `C` embedding width (384); `L` layers (6); `H` heads; `d_ff` MLP width (1536); `dropout`; `rope_theta` rotary period.
 - `TrainConfig`: `seed`; `B` batch size; `total_steps`; `eval_every`; `eval_steps`; `log_every`; `ckpt_every`; `base_lr`; `warmup_steps`; `min_lr`; `grad_clip`; `accum_steps` (grad accumulation factor); `p_train` source mix.
 - `load_config_from_json(path)`: reads `{"model": {...}, "train": {...}}`, validates keys, fills defaults (including default `p_train`).
 
@@ -174,7 +174,7 @@ flowchart TD
 - `tests/`: pytest suite covering masking, batching, tokenizer, blocks, etc.
 
 ### expectations and limits
-- byte-level model (V=256, T=512, C=512, L=8, H=4 by default); still toy-quality; widen/deepen only if you accept more compute.
+- byte-level model (V=256, T=384, C=384, L=6, H=4 by default); still toy-quality; widen/deepen only if you accept more compute.
 - device auto-detect only covers mps/cpu; pass `--device cuda` yourself if you have a GPU.
 - internet needed on first run for wikitext download; respects HF cache afterward.
 - training uses simple logging to stdout; no wandb/metrics piping.
