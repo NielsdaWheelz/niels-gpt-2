@@ -33,6 +33,9 @@ class TrainConfig:
     grad_clip: float = 1.0
     accum_steps: int = 1
     p_train: dict[str, float] | None = None
+    amp: bool = True
+    amp_dtype: str = "fp16"
+    activation_checkpointing: bool = False
 
 
 def default_p_train() -> dict[str, float]:

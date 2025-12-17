@@ -96,6 +96,12 @@ class CausalSelfAttention(nn.Module):
         self.register_buffer("rope_sin", sin, persistent=False)
         self.register_buffer("rope_cos", cos, persistent=False)
 
+        # Cached dtype-converted versions of rope buffers (for AMP)
+        self._rope_sin_fp16 = None
+        self._rope_cos_fp16 = None
+        self._rope_sin_bf16 = None
+        self._rope_cos_bf16 = None
+
         # Precompute and register causal mask (lower triangular)
         mask = torch.tril(torch.ones(cfg.T, cfg.T, dtype=torch.bool))
         mask = mask.unsqueeze(0).unsqueeze(0)  # (1, 1, T, T)
@@ -132,7 +138,22 @@ class CausalSelfAttention(nn.Module):
         v = v.reshape(B, T, self.H, self.D).transpose(1, 2)  # (B, H, T, D)
 
         # Apply RoPE to queries and keys
-        q, k = rope.apply_rope(q, k, self.rope_sin, self.rope_cos)
+        # Get cached dtype-converted rope buffers (lazy init for AMP compatibility)
+        if q.dtype == torch.float16:
+            if self._rope_sin_fp16 is None:
+                self._rope_sin_fp16 = self.rope_sin.to(torch.float16)
+                self._rope_cos_fp16 = self.rope_cos.to(torch.float16)
+            sin, cos = self._rope_sin_fp16, self._rope_cos_fp16
+        elif q.dtype == torch.bfloat16:
+            if self._rope_sin_bf16 is None:
+                self._rope_sin_bf16 = self.rope_sin.to(torch.bfloat16)
+                self._rope_cos_bf16 = self.rope_cos.to(torch.bfloat16)
+            sin, cos = self._rope_sin_bf16, self._rope_cos_bf16
+        else:
+            # float32 or other - use original buffers
+            sin, cos = self.rope_sin, self.rope_cos
+
+        q, k = rope.apply_rope(q, k, sin, cos)
 
         # Compute attention scores: (B, H, T, D) @ (B, H, D, T) -> (B, H, T, T)
         scores = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.D))

@@ -40,7 +40,31 @@ pytest -q
 - checkpoints land in `checkpoints/` (`latest.pt`, `best.pt`, periodic).
 - pretrained checkpoint hosted on [Hugging Face](https://huggingface.co/nnandal/niels-gpt); run `python tools/download_checkpoint.py` to fetch.
 
-### train (pr-06 runner)
+### measure performance
+
+Install psutil for memory measurements
+```bash
+pip install psutil
+```
+
+Run benchmark on MPS
+```bash
+python tools/benchmark_amp_checkpointing.py --device mps --steps 50 --B 16 --T 128
+```
+
+Expected output (sample run on MacBook Air M4):
+```
+Configuration                              Tokens/sec    ms/step    Memory MB
+--------------------------------------------------------------------------------
+Baseline (fp32)                                X,XXX        XX.X        XXX.X
+AMP fp16 only                                 ~1.3X       ~0.77X        ~same
+Checkpointing only (fp32)                     ~0.82X      ~1.22X        ~lower
+AMP fp16 + Checkpointing                      ~1.0X       ~1.0X         ~lowest
+```
+
+The benchmark script verifies actual dtypes used in forward pass after warmup.
+
+### train (pr-06 runner + pr-07 amp/checkpointing)
 Prereqs:
 - caches must exist:
   - pretrain: `data/cache/streams/{wiki,roam,primer}_{train,val}.bin + .meta.json`
@@ -67,6 +91,22 @@ Commands:
     [--device cpu|mps] \
     [--no-resume]  # recommended for fresh pipeline
   ```
+
+**Mixed Precision (AMP) & Activation Checkpointing:**
+- Add to `train_cfg` in config JSON:
+  ```json
+  {
+    "train_cfg": {
+      "amp": true,              // enable mixed precision (MPS only)
+      "amp_dtype": "fp16",      // "fp16" or "bf16"
+      "activation_checkpointing": false  // reduce memory via gradient checkpointing
+    }
+  }
+  ```
+- AMP automatically disabled on CPU (only active on MPS)
+- Activation checkpointing trades ~20-30% speed for lower memory
+- To disable AMP if unstable: set `"amp": false` or use `--device cpu`
+- Training logs show: `device=mps, amp=True (fp16), activation_checkpointing=False, micro_B=16, accum_steps=4, effective_batch=64, params=...`
 
 Checkpoint layout:
 - Phase-scoped histories:
@@ -223,7 +263,7 @@ flowchart TD
 
 ### configs (all in `niels_gpt.config`)
 - `ModelConfig`: `V` vocab=256 bytes; `T` context window (default 384); `C` embedding width (384); `L` layers (6); `H` heads; `d_ff` MLP width (1536); `dropout`; `rope_theta` rotary period.
-- `TrainConfig`: `seed`; `B` batch size; `total_steps`; `eval_every`; `eval_steps`; `log_every`; `ckpt_every`; `base_lr`; `warmup_steps`; `min_lr`; `grad_clip`; `accum_steps` (grad accumulation factor); `p_train` source mix.
+- `TrainConfig`: `seed`; `B` batch size; `total_steps`; `eval_every`; `eval_steps`; `log_every`; `ckpt_every`; `base_lr`; `warmup_steps`; `min_lr`; `grad_clip`; `accum_steps` (grad accumulation factor); `p_train` source mix; `amp` (bool, default True); `amp_dtype` ("fp16"/"bf16", default "fp16"); `activation_checkpointing` (bool, default False).
 - `load_config_from_json(path)`: reads `{"model": {...}, "train": {...}}`, validates keys, fills defaults (including default `p_train`).
 
 ### data sources and caching (`niels_gpt.streams`)
@@ -317,3 +357,6 @@ flowchart TD
 - roam missing: create `data/.roam-data/` or remove from `enabled_sources`.
 - stream too short errors: your data must be at least `T+1` bytes per source; lower `T` or add data.
 - mps quirks: if you hit generator/device errors, rerun with `--device cpu`.
+- **AMP causes NaN losses**: disable AMP with `"amp": false` in config, or try `"amp_dtype": "bf16"` instead of fp16, or reduce learning rate.
+- **Out of memory with activation checkpointing**: reduce batch size `B` or increase `accum_steps` (keeps effective batch same but lower memory per step).
+- **AMP not being used on MPS**: check startup log; requires both `"amp": true` in config AND `device="mps"` (AMP auto-disabled on CPU).

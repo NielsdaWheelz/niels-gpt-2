@@ -148,3 +148,5 @@ deliverables
 tests
 	•	kv-cache decoding matches non-cached decoding (same seed, greedy decoding)
 	•	stop-on-eot works reliably
+
+pr-09: replace wikitext-centric training with streaming fineweb-edu pretrain + sft

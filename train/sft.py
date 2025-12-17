@@ -17,6 +17,7 @@ from niels_gpt.device import get_device
 from niels_gpt.lr_schedule import lr_at_step
 from niels_gpt.model.gpt import GPT
 
+from train.amp_utils import get_amp_context
 from train.checkpointing import (
     PhasePaths,
     assert_model_config_compatible,
@@ -193,6 +194,8 @@ def run_sft(
     resume_ckpt = _resolve_resume_path(resume_path, no_auto_resume=no_auto_resume, phase="sft")
 
     model = GPT(model_cfg).to(device)
+    model.activation_checkpointing = train_cfg.activation_checkpointing
+
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=train_cfg.base_lr,
@@ -221,8 +224,16 @@ def run_sft(
         best_val_loss = ckpt["best_val_loss"]
         print(f"resumed sft from {resume_ckpt} at step {start_step}")
 
+    # Training configuration logging
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"sft: device={device}, params={n_params:,}")
+    amp_status = f"amp={train_cfg.amp} ({train_cfg.amp_dtype})" if train_cfg.amp else "amp=false"
+    effective_batch = train_cfg.B * train_cfg.accum_steps
+    print(
+        f"sft: device={device}, {amp_status}, "
+        f"activation_checkpointing={train_cfg.activation_checkpointing}, "
+        f"micro_B={train_cfg.B}, accum_steps={train_cfg.accum_steps}, effective_batch={effective_batch}, "
+        f"params={n_params:,}"
+    )
 
     train_gen = torch.Generator(device="cpu").manual_seed(train_cfg.seed)
     loss_window: deque[float] = deque(maxlen=50)
@@ -230,6 +241,9 @@ def run_sft(
     latest_path = ckpt_paths.latest
     best_path = ckpt_paths.best
     total_steps = train_cfg.total_steps
+
+    # Get AMP context (nullcontext if disabled or device is cpu)
+    amp_ctx = get_amp_context(device=device, amp_enabled=train_cfg.amp, amp_dtype=train_cfg.amp_dtype)
 
     for step in range(start_step, total_steps):
         lr = lr_at_step(
@@ -247,12 +261,13 @@ def run_sft(
 
         for _ in range(train_cfg.accum_steps):
             x, y_masked = mixture.get_batch(B=train_cfg.B, generator=train_gen)
-            logits = model(x)
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                y_masked.view(-1),
-                ignore_index=-100,
-            )
+            with amp_ctx:
+                logits = model(x)
+                loss = F.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    y_masked.view(-1),
+                    ignore_index=-100,
+                )
             (loss / train_cfg.accum_steps).backward()
             loss_accum += loss.item()
 

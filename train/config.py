@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -47,6 +47,9 @@ class TrainCfgSchema(BaseModel):
     grad_clip: float = 1.0
     accum_steps: int = 1
     p_train: dict[str, float] | None = None
+    amp: bool = True
+    amp_dtype: Literal["fp16", "bf16"] = "fp16"
+    activation_checkpointing: bool = False
 
     def to_train_config(self) -> TrainConfig:
         p_train_resolved = self.p_train if self.p_train is not None else default_p_train()
@@ -64,6 +67,9 @@ class TrainCfgSchema(BaseModel):
             grad_clip=self.grad_clip,
             accum_steps=self.accum_steps,
             p_train=p_train_resolved,
+            amp=self.amp,
+            amp_dtype=self.amp_dtype,
+            activation_checkpointing=self.activation_checkpointing,
         )
 
     def resolved_eval_batches(self) -> int:

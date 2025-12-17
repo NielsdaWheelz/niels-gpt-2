@@ -1,0 +1,27 @@
+{
+  "model_cfg": {
+    "V": 256,
+    "T": 32,
+    "C": 64,
+    "L": 2,
+    "H": 2,
+    "d_ff": 128
+  },
+  "train_cfg": {
+    "seed": 42,
+    "B": 4,
+    "total_steps": 2,
+    "eval_every": 2,
+    "eval_steps": 2,
+    "log_every": 1,
+    "ckpt_every": 2,
+    "base_lr": 0.001,
+    "warmup_steps": 1,
+    "min_lr": 0.0001,
+    "grad_clip": 1.0,
+    "accum_steps": 2,
+    "amp": false,
+    "amp_dtype": "fp16",
+    "activation_checkpointing": false
+  }
+}

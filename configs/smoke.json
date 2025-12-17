@@ -13,6 +13,9 @@
     "grad_clip": 1.0,
     "accum_steps": 4,
     "p_train": {"wiki": 0.72, "roam": 0.18, "primer": 0.10},
-    "log_every": 50
+    "log_every": 50,
+    "amp": true,
+    "amp_dtype": "fp16",
+    "activation_checkpointing": false
   }
 }

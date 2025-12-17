@@ -4,6 +4,7 @@ from typing import Optional, TypedDict
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 
 from niels_gpt.config import ModelConfig
 from niels_gpt.model.blocks import Block, RMSNorm, init_weights
@@ -63,6 +64,9 @@ class GPT(nn.Module):
         # Initialize all weights
         self.apply(init_weights)
 
+        # Activation checkpointing flag (set by training loop)
+        self.activation_checkpointing = False
+
     def forward(self, x: torch.LongTensor) -> torch.FloatTensor:
         """
         Forward pass through GPT.
@@ -88,8 +92,12 @@ class GPT(nn.Module):
         h = self.drop(h)
 
         # Apply transformer blocks sequentially
+        use_checkpointing = self.activation_checkpointing and self.training
         for block in self.blocks:
-            h = block(h)  # (B, T_cur, C)
+            if use_checkpointing:
+                h = torch.utils.checkpoint.checkpoint(block, h, use_reentrant=False)
+            else:
+                h = block(h)  # (B, T_cur, C)
 
         # Final layer norm
         h = self.ln_f(h)  # (B, T_cur, C)
