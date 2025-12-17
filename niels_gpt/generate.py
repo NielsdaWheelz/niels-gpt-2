@@ -3,7 +3,7 @@
 import torch
 
 from niels_gpt.config import ModelConfig
-from niels_gpt.tokenizer import decode, encode
+from niels_gpt.tokenizer import get_default_tokenizer
 
 
 def top_k_filter(logits: torch.Tensor, k: int) -> torch.Tensor:
@@ -89,7 +89,7 @@ def generate_ids(
     T: int,
     temperature: float = 0.9,
     top_k: int | None = 50,
-    stop_sequences: list[bytes] | None = None,
+    eot_id: int,
     device: str,
     generator: torch.Generator | None = None,
 ) -> torch.LongTensor:
@@ -103,24 +103,19 @@ def generate_ids(
         T: Context window size (cfg.T)
         temperature: Sampling temperature (0 = greedy)
         top_k: Top-k filtering (None = no filtering)
-        stop_sequences: List of byte sequences that stop generation
+        eot_id: Token id that terminates generation when produced
         device: Device to run model on ("mps" or "cpu")
         generator: Random generator for reproducibility
 
     Returns:
         (n + m,) int64 on cpu, where m <= max_new_tokens
-        Stops early if stop sequence detected, truncating before it.
+        Stops early if eot_id is generated (truncates before it).
     """
     model.eval()
 
     # Use list for O(1) append instead of O(n) tensor concatenation
     ids_list = prompt_ids.tolist()
     start = len(ids_list)
-
-    # Precompute max stop sequence length for efficient checking
-    max_stop = 0
-    if stop_sequences:
-        max_stop = max(len(s) for s in stop_sequences)
 
     with torch.no_grad():
         for _ in range(max_new_tokens):
@@ -150,27 +145,9 @@ def generate_ids(
             # Append to list (O(1))
             ids_list.append(next_token)
 
-            # Check for stop sequences in newly generated portion
-            if stop_sequences:
-                # Convert to bytes for stop sequence checking
-                # Include overlap to catch sequences that straddle the window boundary
-                # Window size: max_stop + 4 for current + (max_stop - 1) for overlap
-                window_start = max(0, len(ids_list) - (max_stop + 4) - (max_stop - 1))
-                window_bytes = bytes(ids_list[window_start:])
-
-                # Search starting from the first position that could be in generated portion
-                # This ensures we find the earliest stop sequence in the generated region
-                search_from = max(0, start - window_start)
-
-                # Check each stop sequence
-                for stop_seq in stop_sequences:
-                    pos = window_bytes.find(stop_seq, search_from)
-                    if pos != -1:
-                        # Calculate absolute position in ids
-                        abs_pos = window_start + pos
-                        # Truncate before the stop sequence
-                        ids_list = ids_list[:abs_pos]
-                        return torch.tensor(ids_list, dtype=torch.long)
+            # Stop on eot_id
+            if next_token == eot_id:
+                return torch.tensor(ids_list[:-1], dtype=torch.long)
 
     return torch.tensor(ids_list, dtype=torch.long)
 
@@ -183,7 +160,6 @@ def generate_text(
     max_new_tokens: int,
     temperature: float = 0.9,
     top_k: int | None = 50,
-    stop_sequences: list[bytes] | None = None,
     device: str,
     generator: torch.Generator | None = None,
 ) -> str:
@@ -197,15 +173,14 @@ def generate_text(
         max_new_tokens: Maximum tokens to generate
         temperature: Sampling temperature (0 = greedy)
         top_k: Top-k filtering (None = no filtering)
-        stop_sequences: List of byte sequences that stop generation
         device: Device to run model on
         generator: Random generator for reproducibility
 
     Returns:
         Generated text (prompt + completion)
     """
-    # Encode prompt
-    prompt_ids = encode(prompt_text)
+    tok = get_default_tokenizer()
+    prompt_ids = tok.encode_torch(prompt_text)
 
     # Generate ids
     output_ids = generate_ids(
@@ -215,10 +190,9 @@ def generate_text(
         T=cfg.T,
         temperature=temperature,
         top_k=top_k,
-        stop_sequences=stop_sequences,
+        eot_id=tok.special_token_ids()["eot"],
         device=device,
         generator=generator,
     )
 
-    # Decode and return
-    return decode(output_ids)
+    return tok.decode(output_ids)

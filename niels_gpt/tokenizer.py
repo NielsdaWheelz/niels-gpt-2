@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 import sentencepiece as spm
 import torch
 
+from niels_gpt.paths import REPO_ROOT
+
 SPECIAL_TOKENS = ("<|sys|>", "<|usr|>", "<|asst|>", "<|eot|>")
+# Default tokenizer location (from PR-01 artifacts)
+DEFAULT_TOKENIZER_PATH = REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"
+
+_DEFAULT_TOKENIZER: "SentencePieceTokenizer | None" = None
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,7 @@ class SentencePieceTokenizer:
         """
         self._sp = spm.SentencePieceProcessor()
         self._sp.Load(model_path)
+        self.model_path = str(Path(model_path).resolve())
 
         # Validate that each special token exists in vocabulary
         # Note: We insert special tokens by ID, not by encoding strings
@@ -123,3 +131,33 @@ def load_tokenizer(model_path: str) -> SentencePieceTokenizer:
         Initialized SentencePieceTokenizer instance
     """
     return SentencePieceTokenizer(model_path)
+
+
+def _get_default_tokenizer() -> SentencePieceTokenizer:
+    """Lazily load the default tokenizer from artifacts."""
+    global _DEFAULT_TOKENIZER
+    if _DEFAULT_TOKENIZER is None:
+        if not DEFAULT_TOKENIZER_PATH.exists():
+            raise FileNotFoundError(
+                f"Default tokenizer not found at {DEFAULT_TOKENIZER_PATH}. "
+                "Please train or provide tokenizer artifacts."
+            )
+        _DEFAULT_TOKENIZER = load_tokenizer(str(DEFAULT_TOKENIZER_PATH))
+    return _DEFAULT_TOKENIZER
+
+
+def get_default_tokenizer() -> SentencePieceTokenizer:
+    """Public accessor for the default SentencePiece tokenizer."""
+    return _get_default_tokenizer()
+
+
+def encode(text: str, *, device: str | None = None) -> torch.LongTensor:
+    """Encode using the default SentencePiece tokenizer."""
+    tok = _get_default_tokenizer()
+    return tok.encode_torch(text, device=device)
+
+
+def decode(ids: Sequence[int] | torch.Tensor) -> str:
+    """Decode using the default SentencePiece tokenizer."""
+    tok = _get_default_tokenizer()
+    return tok.decode(ids)

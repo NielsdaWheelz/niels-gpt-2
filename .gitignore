@@ -220,3 +220,5 @@ checkpoints/*.pt
 artifacts/tokenizer/*.model
 artifacts/tokenizer/*.json
 artifacts/tokenizer/*.vocab
+
+# Token caches

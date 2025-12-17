@@ -65,9 +65,6 @@ def main():
     # Initialize messages with system prompt
     messages = [{"role": "system", "content": system_prompt}]
 
-    # Stop sequences for chat (prevent model from emitting turn tags)
-    stop_sequences = [b"\nuser: ", b"\nsystem: ", b"\nassistant: "]
-
     # Interaction loop
     try:
         while True:
@@ -100,7 +97,6 @@ def main():
                 max_new_tokens=args.max_new_tokens,
                 temperature=args.temperature,
                 top_k=top_k,
-                stop_sequences=stop_sequences,
                 device=device,
                 generator=generator,
             )

@@ -149,7 +149,7 @@ flowchart TD
 - `eval_loss_on_stream(model, stream, B, T, device, eval_steps, seed)`: deterministic batches from a single stream, averages cross-entropy in eval mode.
 
 ### generation (`niels_gpt.generate`)
-- `generate_ids(model, prompt_ids, max_new_tokens, T, temperature, top_k, stop_sequences, device, generator)`: autoregressive sampling with optional top-k; stop sequences truncate output early; uses CPU generator for deterministic sampling across devices.
+- `generate_ids(model, prompt_ids, max_new_tokens, T, temperature, top_k, eot_id, device, generator)`: autoregressive sampling with optional top-k; stops only when `eot_id` is produced; uses CPU generator for deterministic sampling across devices.
 - `generate_text(model, prompt_text, cfg, ...)`: convenience wrapper around encode/generate_ids/decode.
 
 ### chat CLI (`niels_gpt.chat_cli`)
