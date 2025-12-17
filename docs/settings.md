@@ -1,9 +1,12 @@
 # settings and overrides
 
-- defaults live in `niels_gpt/settings.py` (single source of truth for tokenizer, data, model, training, generation, benchmark, and reproducibility toggles).
-- resolved configs are produced via `resolve_settings(phase, overrides_path)` which deep-merges JSON overrides into defaults and validates invariants (special tokens must exist and encode to one id).
-- training entrypoints (`python -m train.run --phase pretrain|sft|pipeline`) treat `--config` as overrides; legacy full configs are auto-adapted with a warning.
-- print resolved config via `python -m train.run --phase pretrain --config <json> --print_config`.
+- defaults live in `niels_gpt/settings.py` (single source of truth for tokenizer, data, model, training, generation, benchmark, reproducibility).
+- resolved configs come from `resolve_settings(phase, overrides)`; overrides must be Settings-shaped JSON/dict (no legacy translation). `data.mix_pretrain|mix_sft` are replace-only; other dicts deep-merge.
+- each `resolve_settings(..., write_resolved=True)` run writes `runs/<run_id>/resolved_settings.json` and checkpoint sidecars carry `_settings_meta` pointers.
+- training entrypoints (`python -m train.run --phase pretrain|sft|pipeline`) treat `--config` as overrides; print resolved config via `--print_config`.
 - generation defaults (stop on `<|eot|>`, role-token bans) and benchmark grids are pulled from settings; update settings to change behavior.
-- audit guardrail: `python tools/audit_config_coverage.py` fails if denylisted hyperparameters or special-token literals drift outside settings/config; enforced in `tests/test_audit_config_coverage.py`.
+- special tokens (`<|sys|>`, `<|usr|>`, `<|asst|>`, `<|eot|>`) are trained as user_defined_symbols and must encode/decode as single pieces; loaders hard-fail otherwise.
+- tokenizer training should include representative corpora (roam, primer, wikitext, fineweb-edu sample) and uses byte_fallback; collision guard rejects any raw text containing special token strings before tokenization.
+- cache metadata carries tokenizer sha256; loaders hard-fail on hash mismatch to prevent mixing caches across tokenizers.
+- audit guardrail: `python tools/audit_config_coverage.py` allows hyperparam literals only in settings; flags denylisted names and special-token literals elsewhere. Canary tests live in `tests/test_audit_config_coverage.py`.
 

@@ -196,8 +196,8 @@ def run_sweep(args: argparse.Namespace) -> None:
             "L": cfg["L"],
             "H": cfg["H"],
             "d_ff": cfg["d_ff"],
-            "dropout": 0.1,
-            "rope_theta": 10000.0,
+            "dropout": _SETTINGS.model.dropout,
+            "rope_theta": _SETTINGS.model.rope_theta,
         }
 
         base_trial_cfg = {

@@ -52,9 +52,15 @@ def _load_sft_source(
     device: str,
     assistant_only_loss: bool,
     include_eot_in_loss: bool,
+    expected_tokenizer_sha: str | None,
 ) -> SFTExampleDataset:
     tokens_path, idx_path, meta_path = _expected_sft_paths(cache_dir, source, split)
     meta = _load_meta(meta_path)
+    if expected_tokenizer_sha and meta.get("tokenizer_sha256") not in {expected_tokenizer_sha}:
+        raise ValueError(
+            f"tokenizer hash mismatch for {source}/{split}: cache has {meta.get('tokenizer_sha256')}, "
+            f"expected {expected_tokenizer_sha}"
+        )
     special_ids = meta.get("special_token_ids", {})
     asst_id = special_ids.get("asst")
     eot_id = special_ids.get("eot")
@@ -89,6 +95,7 @@ def _load_sft_sources(
     allow_missing_idx: bool,
     assistant_only_loss: bool,
     include_eot_in_loss: bool,
+    expected_tokenizer_sha: str | None,
 ) -> dict[str, SFTExampleDataset]:
     missing: list[str] = []
     for src in source_names:
@@ -120,6 +127,7 @@ def _load_sft_sources(
             device=device,
             assistant_only_loss=assistant_only_loss,
             include_eot_in_loss=include_eot_in_loss,
+            expected_tokenizer_sha=expected_tokenizer_sha,
         )
     return datasets
 
@@ -151,8 +159,10 @@ class SFTMixture:
         return torch.stack(xs, dim=0), torch.stack(y_masked_list, dim=0)
 
 
-def _load_wiki_val(cache_dir: Path, *, T: int) -> PretrainSource:
-    return _load_stream_source(cache_dir, "wiki", "val", T=T)
+def _load_wiki_val(cache_dir: Path, *, T: int, expected_tokenizer_sha: str | None) -> PretrainSource:
+    return _load_stream_source(
+        cache_dir, "wiki", "val", T=T, expected_tokenizer_sha=expected_tokenizer_sha
+    )
 
 
 def run_sft(
@@ -171,6 +181,11 @@ def run_sft(
     device = device or get_device()
     paths.ensure_dirs()
 
+    def _save_settings_sidecar(target: Path) -> None:
+        if job.resolved_settings_path and Path(job.resolved_settings_path).exists():
+            sidecar = target.with_name(target.name + ".resolved_settings.json")
+            shutil.copy2(job.resolved_settings_path, sidecar)
+
     model_cfg = job.model_cfg
     train_cfg = job.train_cfg
     eval_batches = job.eval_batches
@@ -186,8 +201,15 @@ def run_sft(
         except Exception:
             pass
 
+    settings_meta = {
+        "run_id": job.run_id,
+        "resolved_settings_path": str(job.resolved_settings_path) if job.resolved_settings_path else None,
+        "overrides_source": job.resolved.overrides_source,
+        "tokenizer_sha256": job.resolved.tokenizer_sha256,
+    }
+
     model_cfg_saved = {**to_dict(model_cfg), "_raw": job.model_cfg_raw}
-    train_cfg_saved = {**to_dict(train_cfg), "_raw": job.train_cfg_raw}
+    train_cfg_saved = {**to_dict(train_cfg), "_raw": job.train_cfg_raw, "_settings_meta": settings_meta}
     ckpt_paths: PhasePaths = phase_paths("sft")
 
     source_probs = job.sft_sources
@@ -207,6 +229,7 @@ def run_sft(
         allow_missing_idx=allow_missing_idx,
         assistant_only_loss=job.sft_format["assistant_only_loss"],
         include_eot_in_loss=job.sft_format["include_eot_in_loss"],
+        expected_tokenizer_sha=job.tokenizer_sha256,
     )
     mixture = SFTMixture(sft_train, source_probs)
 
@@ -222,15 +245,15 @@ def run_sft(
             allow_missing_idx=allow_missing_idx,
             assistant_only_loss=job.sft_format["assistant_only_loss"],
             include_eot_in_loss=job.sft_format["include_eot_in_loss"],
+            expected_tokenizer_sha=job.tokenizer_sha256,
         )
         val_mixture = SFTMixture(val_sft, {k: v / sum(source_probs.values()) for k, v in source_probs.items()})
     else:
-        wiki_val_source = _load_wiki_val(streams_cache_dir, T=model_cfg.T)
+        wiki_val_source = _load_wiki_val(
+            streams_cache_dir, T=model_cfg.T, expected_tokenizer_sha=job.tokenizer_sha256
+        )
 
     resume_ckpt = _resolve_resume_path(resume_path, no_auto_resume=no_auto_resume, phase="sft")
-
-    if job.resolved.legacy_format:
-        print("warning: using legacy config format as overrides")
 
     model = GPT(model_cfg).to(device)
     model.activation_checkpointing = train_cfg.activation_checkpointing
@@ -374,6 +397,8 @@ def run_sft(
                     best_val_loss=best_val_loss,
                 )
                 shutil.copy2(best_path, paths.CHECKPOINT_DIR / "best.pt")
+                _save_settings_sidecar(best_path)
+                _save_settings_sidecar(paths.CHECKPOINT_DIR / "best.pt")
                 print(f"[sft] new best checkpoint at step {step_num} (val_loss={best_val_loss:.4f})")
 
         if step_num % train_cfg.ckpt_every == 0:
@@ -397,6 +422,9 @@ def run_sft(
                 best_val_loss=best_val_loss,
             )
             shutil.copy2(latest_path, paths.CHECKPOINT_DIR / "latest.pt")
+            _save_settings_sidecar(periodic_path)
+            _save_settings_sidecar(latest_path)
+            _save_settings_sidecar(paths.CHECKPOINT_DIR / "latest.pt")
     save_checkpoint(
         latest_path,
         model_cfg=model_cfg_saved,
@@ -407,6 +435,8 @@ def run_sft(
         best_val_loss=best_val_loss,
     )
     shutil.copy2(latest_path, paths.CHECKPOINT_DIR / "latest.pt")
+    _save_settings_sidecar(latest_path)
+    _save_settings_sidecar(paths.CHECKPOINT_DIR / "latest.pt")
 
     return {
         "final_step": total_steps,

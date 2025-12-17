@@ -19,6 +19,7 @@ import torch.nn.functional as F
 
 from niels_gpt.config import ModelConfig
 from niels_gpt.model.gpt import GPT
+from niels_gpt.settings import default_settings
 from train.amp_utils import get_amp_context
 
 try:
@@ -46,6 +47,7 @@ def benchmark_config(
     T: int,
     steps: int,
     cfg: ModelConfig,
+    optimizer_cfg,
 ):
     """Run benchmark for a specific configuration."""
     print(f"\n{'='*80}")
@@ -60,7 +62,13 @@ def benchmark_config(
     model.activation_checkpointing = activation_checkpointing
     model.train()
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=optimizer_cfg.base_lr,
+        betas=optimizer_cfg.betas,
+        weight_decay=optimizer_cfg.weight_decay,
+        eps=optimizer_cfg.eps,
+    )
 
     # Get AMP context
     amp_ctx = get_amp_context(device=device, amp_enabled=amp, amp_dtype=amp_dtype)
@@ -172,6 +180,10 @@ def main():
     parser.add_argument("--T", type=int, default=128, help="Sequence length")
     args = parser.parse_args()
 
+    settings = default_settings()
+    model_defaults = settings.model
+    train_defaults = settings.training.pretrain
+
     # Model config (small enough for CPU, but large enough to show differences)
     cfg = ModelConfig(
         V=256,
@@ -180,7 +192,8 @@ def main():
         L=4,
         H=4,
         d_ff=512,
-        dropout=0.1,
+        dropout=model_defaults.dropout,
+        rope_theta=model_defaults.rope_theta,
     )
 
     configs = [
@@ -212,6 +225,7 @@ def main():
                 T=args.T,
                 steps=args.steps,
                 cfg=cfg,
+                optimizer_cfg=train_defaults,
                 **config,
             )
             results[label] = result

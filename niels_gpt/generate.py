@@ -3,6 +3,7 @@
 import torch
 
 from niels_gpt.config import ModelConfig
+from niels_gpt.settings import GenerationSettings
 from niels_gpt.tokenizer import get_default_tokenizer
 
 
@@ -100,10 +101,10 @@ def generate_ids(
     *,
     max_new_tokens: int,
     T: int,
-    temperature: float = 0.9,
-    top_k: int | None = 50,
-    top_p: float | None = None,
-    repetition_penalty: float | None = None,
+    temperature: float,
+    top_k: int | None,
+    top_p: float | None,
+    repetition_penalty: float | None,
     eot_id: int,
     banned_token_ids: list[int] | None = None,
     device: str,
@@ -183,11 +184,7 @@ def generate_text(
     prompt_text: str,
     *,
     cfg: ModelConfig,
-    max_new_tokens: int,
-    temperature: float = 0.9,
-    top_k: int | None = 50,
-    top_p: float | None = None,
-    repetition_penalty: float | None = None,
+    generation: GenerationSettings,
     stop_token_id: int | None = None,
     banned_token_ids: list[int] | None = None,
     device: str,
@@ -219,12 +216,12 @@ def generate_text(
         prompt_ids,
         max_new_tokens=max_new_tokens,
         T=cfg.T,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        repetition_penalty=repetition_penalty,
+        temperature=generation.temperature,
+        top_k=generation.top_k,
+        top_p=generation.top_p,
+        repetition_penalty=generation.repetition_penalty,
         eot_id=stop_id,
-        banned_token_ids=banned_token_ids,
+        banned_token_ids=banned_token_ids or generation.banned_token_ids or [],
         device=device,
         generator=generator,
     )

@@ -113,7 +113,7 @@ def test_checkpoint_without_optimizer():
     """Test checkpoint save/load when optimizer is None."""
     torch.manual_seed(42)
 
-    model_cfg = ModelConfig(V=256, T=64, C=128, L=2, H=4, d_ff=512, dropout=0.1)
+    model_cfg = ModelConfig(V=256, T=64, C=128, L=2, H=4, d_ff=512, dropout=0.1, rope_theta=10000.0)
     train_cfg = {"seed": 42, "B": 8, "total_steps": 1000}
 
     device = "cpu"
@@ -146,7 +146,7 @@ def test_checkpoint_determinism():
     """Test that same model state produces identical checkpoint."""
     torch.manual_seed(42)
 
-    model_cfg = ModelConfig(V=256, T=64, C=128, L=2, H=4, d_ff=512, dropout=0.1)
+    model_cfg = ModelConfig(V=256, T=64, C=128, L=2, H=4, d_ff=512, dropout=0.1, rope_theta=10000.0)
     train_cfg = {"seed": 42}
 
     device = "cpu"

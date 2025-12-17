@@ -153,16 +153,33 @@ def _expected_paths(cache_dir: Path, source: str, split: str) -> tuple[Path, Pat
     return bin_path, meta_path
 
 
-def _load_source(cache_dir: Path, source: str, split: str, *, T: int) -> PretrainSource:
+def _load_source(
+    cache_dir: Path,
+    source: str,
+    split: str,
+    *,
+    T: int,
+    expected_tokenizer_sha: str | None,
+) -> PretrainSource:
     bin_path, meta_path = _expected_paths(cache_dir, source, split)
     meta = _load_meta(meta_path)
+    if expected_tokenizer_sha and meta.get("tokenizer_sha256") not in {expected_tokenizer_sha}:
+        raise ValueError(
+            f"tokenizer hash mismatch for {source}/{split}: cache has {meta.get('tokenizer_sha256')}, "
+            f"expected {expected_tokenizer_sha}"
+        )
     dtype = _infer_dtype(meta)
     tokens = np.memmap(bin_path, dtype=dtype, mode="r")
     return PretrainSource(source, tokens=tokens, T=T)
 
 
 def _load_sources(
-    cache_dir: Path, source_names: Iterable[str], *, split: str, T: int
+    cache_dir: Path,
+    source_names: Iterable[str],
+    *,
+    split: str,
+    T: int,
+    expected_tokenizer_sha: str | None,
 ) -> dict[str, PretrainSource]:
     missing: list[str] = []
     for src in source_names:
@@ -180,7 +197,9 @@ def _load_sources(
 
     sources: dict[str, PretrainSource] = {}
     for src in source_names:
-        sources[src] = _load_source(cache_dir, src, split, T=T)
+        sources[src] = _load_source(
+            cache_dir, src, split, T=T, expected_tokenizer_sha=expected_tokenizer_sha
+        )
     return sources
 
 
@@ -200,6 +219,11 @@ def run_pretrain(
     device = device or get_device()
     paths.ensure_dirs()
 
+    def _save_settings_sidecar(target: Path) -> None:
+        if job.resolved_settings_path and Path(job.resolved_settings_path).exists():
+            sidecar = target.with_name(target.name + ".resolved_settings.json")
+            shutil.copy2(job.resolved_settings_path, sidecar)
+
     model_cfg = job.model_cfg
     train_cfg = job.train_cfg
     eval_batches = job.eval_batches
@@ -215,8 +239,15 @@ def run_pretrain(
         except Exception:
             pass
 
+    settings_meta = {
+        "run_id": job.run_id,
+        "resolved_settings_path": str(job.resolved_settings_path) if job.resolved_settings_path else None,
+        "overrides_source": job.resolved.overrides_source,
+        "tokenizer_sha256": job.resolved.tokenizer_sha256,
+    }
+
     model_cfg_saved = {**to_dict(model_cfg), "_raw": job.model_cfg_raw}
-    train_cfg_saved = {**to_dict(train_cfg), "_raw": job.train_cfg_raw}
+    train_cfg_saved = {**to_dict(train_cfg), "_raw": job.train_cfg_raw, "_settings_meta": settings_meta}
     ckpt_paths: PhasePaths = phase_paths("pretrain")
 
     source_probs = job.sources
@@ -225,8 +256,20 @@ def run_pretrain(
     val_source_name = job.val_source
     cache_dir = job.cache_dir
 
-    train_sources = _load_sources(cache_dir, source_probs.keys(), split="train", T=model_cfg.T)
-    val_sources = _load_sources(cache_dir, [val_source_name], split="val", T=model_cfg.T)
+    train_sources = _load_sources(
+        cache_dir,
+        source_probs.keys(),
+        split="train",
+        T=model_cfg.T,
+        expected_tokenizer_sha=job.tokenizer_sha256,
+    )
+    val_sources = _load_sources(
+        cache_dir,
+        [val_source_name],
+        split="val",
+        T=model_cfg.T,
+        expected_tokenizer_sha=job.tokenizer_sha256,
+    )
     val_source = val_sources[val_source_name]
 
     mixture = PretrainMixture(train_sources, source_probs)
@@ -234,9 +277,6 @@ def run_pretrain(
     resume_ckpt = _resolve_resume_path(
         resume_path, no_auto_resume=no_auto_resume, phase="pretrain", allow_root_fallback=False
     )
-
-    if job.resolved.legacy_format:
-        print("warning: using legacy config format as overrides")
 
     model = GPT(model_cfg).to(device)
     model.activation_checkpointing = train_cfg.activation_checkpointing
@@ -359,6 +399,8 @@ def run_pretrain(
                     best_val_loss=best_val_loss,
                 )
                 shutil.copy2(best_path, paths.CHECKPOINT_DIR / "best.pt")
+                _save_settings_sidecar(best_path)
+                _save_settings_sidecar(paths.CHECKPOINT_DIR / "best.pt")
                 print(f"[pretrain] new best checkpoint at step {step_num} (val_loss={best_val_loss:.4f})")
 
         if step_num % train_cfg.ckpt_every == 0:
@@ -382,6 +424,9 @@ def run_pretrain(
                 best_val_loss=best_val_loss,
             )
             shutil.copy2(latest_path, paths.CHECKPOINT_DIR / "latest.pt")
+            _save_settings_sidecar(periodic_path)
+            _save_settings_sidecar(latest_path)
+            _save_settings_sidecar(paths.CHECKPOINT_DIR / "latest.pt")
     # final latest
     save_checkpoint(
         latest_path,
@@ -393,6 +438,8 @@ def run_pretrain(
         best_val_loss=best_val_loss,
     )
     shutil.copy2(latest_path, paths.CHECKPOINT_DIR / "latest.pt")
+    _save_settings_sidecar(latest_path)
+    _save_settings_sidecar(paths.CHECKPOINT_DIR / "latest.pt")
 
     return {
         "final_step": total_steps,

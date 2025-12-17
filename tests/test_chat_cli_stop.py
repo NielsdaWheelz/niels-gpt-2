@@ -47,7 +47,10 @@ def test_generation_stops_on_eot_token():
         T=64,
         temperature=0,
         top_k=None,
+        top_p=None,
+        repetition_penalty=None,
         eot_id=eot,
+        banned_token_ids=None,
         device="cpu",
         generator=None,
     )
@@ -74,7 +77,10 @@ def test_substring_does_not_truncate_without_eot():
         T=128,
         temperature=0,
         top_k=None,
+        top_p=None,
+        repetition_penalty=None,
         eot_id=eot,
+        banned_token_ids=None,
         device="cpu",
         generator=None,
     )

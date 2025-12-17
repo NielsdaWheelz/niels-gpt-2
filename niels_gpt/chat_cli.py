@@ -1,6 +1,7 @@
 """Interactive CLI chat with trained checkpoint."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -74,6 +75,16 @@ def main():
     top_k = args.top_k if args.top_k > 0 else None
     top_p = args.top_p if args.top_p > 0 else None
 
+    gen_overrides = {
+        "max_new_tokens": args.max_new_tokens,
+        "temperature": args.temperature,
+        "top_k": top_k,
+        "top_p": top_p,
+    }
+    generation_cfg = gen_defaults.model_copy(update=gen_overrides)
+    print("generation settings (settings defaults + CLI overrides):")
+    print(json.dumps(generation_cfg.model_dump(), indent=2))
+
     # Load checkpoint and model
     device = get_device()
     ckpt = load_checkpoint(args.ckpt, device=device)
@@ -128,11 +139,7 @@ def main():
                 model,
                 prompt,
                 cfg=cfg,
-                max_new_tokens=args.max_new_tokens,
-                temperature=args.temperature,
-                top_k=top_k,
-                top_p=top_p,
-                repetition_penalty=gen_defaults.repetition_penalty,
+                generation=generation_cfg,
                 stop_token_id=stop_id,
                 banned_token_ids=banned_ids,
                 device=device,

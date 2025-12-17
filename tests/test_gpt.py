@@ -11,7 +11,7 @@ from niels_gpt.model.gpt import GPT
 
 
 def tiny_cfg() -> ModelConfig:
-    return ModelConfig(V=128, T=64, C=128, L=2, H=4, d_ff=256, dropout=0.1)
+    return ModelConfig(V=128, T=64, C=128, L=2, H=4, d_ff=256, dropout=0.1, rope_theta=10000.0)
 
 
 def test_gpt_shape_dtype_device():

@@ -1,5 +1,5 @@
 {
-  "model_cfg": {
+  "model": {
     "V": 50257,
     "T": 512,
     "C": 384,
@@ -7,18 +7,20 @@
     "H": 6,
     "d_ff": 1152
   },
-  "train_cfg": {
-    "B": 11,
-    "accum_steps": 2,
-    "total_steps": 10000,
-    "eval_every": 250,
-    "ckpt_every": 1000,
-    "amp": true,
-    "amp_dtype": "fp16",
-    "activation_checkpointing": false,
-    "base_lr": 3e-4,
-    "warmup_steps": 200,
-    "min_lr": 3e-5,
-    "grad_clip": 1.0
+  "training": {
+    "pretrain": {
+      "micro_B": 11,
+      "accum_steps": 2,
+      "total_steps": 10000,
+      "eval_every": 250,
+      "ckpt_every": 1000,
+      "amp": true,
+      "amp_dtype": "fp16",
+      "activation_checkpointing": false,
+      "base_lr": 0.0003,
+      "warmup_steps": 200,
+      "min_lr": 0.00003,
+      "grad_clip": 1.0
+    }
   }
 }
