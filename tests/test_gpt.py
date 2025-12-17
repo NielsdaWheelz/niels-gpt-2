@@ -6,12 +6,17 @@ import torch.nn.functional as F
 
 from niels_gpt.config import ModelConfig
 from niels_gpt.device import get_device
+from niels_gpt.model.blocks import RMSNorm
 from niels_gpt.model.gpt import GPT
+
+
+def tiny_cfg() -> ModelConfig:
+    return ModelConfig(V=128, T=64, C=128, L=2, H=4, d_ff=256, dropout=0.1)
 
 
 def test_gpt_shape_dtype_device():
     """Test that GPT produces correct output shape, dtype, and device."""
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     device = get_device()
     model = GPT(cfg).to(device)
 
@@ -37,7 +42,7 @@ def test_gpt_shape_dtype_device():
 
 def test_gpt_variable_length_ok():
     """Test that GPT handles variable sequence lengths T_cur < T."""
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     device = get_device()
     model = GPT(cfg).to(device)
 
@@ -56,7 +61,7 @@ def test_gpt_variable_length_ok():
 
 def test_gpt_rejects_too_long():
     """Test that GPT raises an error for sequences longer than max context."""
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     device = get_device()
     model = GPT(cfg).to(device)
 
@@ -70,7 +75,7 @@ def test_gpt_rejects_too_long():
 
 def test_gpt_weight_tying():
     """Test that lm_head and tok_emb share the same weight tensor."""
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     model = GPT(cfg)
 
     # Check weight tying by identity
@@ -81,7 +86,7 @@ def test_gpt_weight_tying():
 
 def test_gpt_backward_smoke_finite_grads():
     """Test that backward pass produces finite gradients."""
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     device = get_device()
     model = GPT(cfg).to(device)
 
@@ -106,3 +111,15 @@ def test_gpt_backward_smoke_finite_grads():
     assert torch.isfinite(model.tok_emb.weight.grad).all(), (
         "tok_emb.weight.grad should be finite"
     )
+
+
+def test_final_norm_is_rmsnorm():
+    """Final norm should use RMSNorm and preserve dtype/shape on forward."""
+    cfg = tiny_cfg()
+    model = GPT(cfg)
+    assert isinstance(model.ln_f, RMSNorm), "Final norm should be RMSNorm"
+
+    x = torch.randint(0, cfg.V, (2, cfg.T))
+    logits = model(x)
+    assert logits.shape == (2, cfg.T, cfg.V)
+    assert logits.dtype == torch.float32
