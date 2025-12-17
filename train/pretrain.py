@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.nn.utils as nn_utils
 
 import niels_gpt.paths as paths
-from niels_gpt.config import ModelConfig, TrainConfig, default_p_train, load_json, to_dict
+from niels_gpt.config import to_dict
 from niels_gpt.device import get_device
 from niels_gpt.lr_schedule import lr_at_step
 from niels_gpt.model.gpt import GPT
@@ -24,41 +24,8 @@ from train.checkpointing import (
     phase_paths,
     save_checkpoint,
 )
+from train.config import PretrainJobConfig, load_pretrain_job_config
 from train.eval import evaluate_pretrain
-
-
-def _default_sources() -> dict[str, float]:
-    return {"wiki": 0.784, "roam": 0.196, "primer": 0.020}
-
-
-def _load_model_cfg(cfg: dict[str, Any]) -> tuple[ModelConfig, dict[str, Any]]:
-    if "model_cfg" in cfg:
-        model_cfg_dict = cfg["model_cfg"]
-    elif "model_cfg_path" in cfg:
-        model_cfg_dict = load_json(cfg["model_cfg_path"])
-    else:
-        raise ValueError("config must include model_cfg or model_cfg_path")
-    model_cfg = ModelConfig(**model_cfg_dict)
-    return model_cfg, model_cfg_dict
-
-
-def _load_train_cfg(cfg: dict[str, Any]) -> tuple[TrainConfig, dict[str, Any], int]:
-    if not isinstance(cfg, dict):
-        raise ValueError("train_cfg must be a dict")
-
-    train_fields = set(TrainConfig.__dataclass_fields__.keys())
-    unknown_keys = set(cfg.keys()) - train_fields - {"eval_batches"}
-    if unknown_keys:
-        raise ValueError(f"unknown train_cfg keys: {sorted(unknown_keys)}")
-
-    p_train = cfg.get("p_train", default_p_train())
-    merged = {**to_dict(TrainConfig(p_train=p_train)), **cfg}
-    eval_batches = int(merged.get("eval_batches", merged.get("eval_steps", 50)))
-
-    train_kwargs = {k: merged[k] for k in train_fields}
-    train_cfg = TrainConfig(**train_kwargs)
-    train_cfg_dict = {**merged, "eval_batches": eval_batches}
-    return train_cfg, train_cfg_dict, eval_batches
 
 
 def _resolve_resume_path(
@@ -185,7 +152,7 @@ def _load_sources(
 
 
 def run_pretrain(
-    config: dict[str, Any],
+    config: PretrainJobConfig | dict[str, Any],
     *,
     device: str | None = None,
     resume_path: str | None = None,
@@ -196,20 +163,22 @@ def run_pretrain(
 
     Returns dict with keys: final_step, best_val_loss, latest_path, best_path, last_val_loss.
     """
+    job = config if isinstance(config, PretrainJobConfig) else load_pretrain_job_config(config)
     device = device or get_device()
     paths.ensure_dirs()
 
-    model_cfg, model_cfg_dict = _load_model_cfg(config)
-    train_cfg, train_cfg_dict, eval_batches = _load_train_cfg(config.get("train_cfg", {}))
-    model_cfg_saved = {**model_cfg_dict, "_raw": config.get("model_cfg", model_cfg_dict)}
-    train_cfg_saved = {**train_cfg_dict, "_raw": config.get("train_cfg", {})}
+    model_cfg = job.model_cfg
+    train_cfg = job.train_cfg
+    eval_batches = job.eval_batches
+    model_cfg_saved = {**to_dict(model_cfg), "_raw": job.model_cfg_raw}
+    train_cfg_saved = {**to_dict(train_cfg), "_raw": job.train_cfg_raw}
     ckpt_paths: PhasePaths = phase_paths("pretrain")
 
-    source_probs = config.get("sources", _default_sources())
+    source_probs = job.sources
     if not source_probs:
         raise ValueError("sources must be a non-empty mapping of source -> probability")
-    val_source_name = config.get("val_source", "wiki")
-    cache_dir = Path(config.get("cache_dir", paths.REPO_ROOT / "data" / "cache" / "streams")).resolve()
+    val_source_name = job.val_source
+    cache_dir = job.cache_dir
 
     train_sources = _load_sources(cache_dir, source_probs.keys(), split="train", T=model_cfg.T)
     val_sources = _load_sources(cache_dir, [val_source_name], split="val", T=model_cfg.T)
@@ -235,7 +204,7 @@ def run_pretrain(
 
     if resume_ckpt:
         ckpt = load_checkpoint(str(resume_ckpt), device=device)
-        assert_model_config_compatible(ckpt["model_cfg"], model_cfg_dict)
+        assert_model_config_compatible(ckpt["model_cfg"], to_dict(model_cfg))
         model.load_state_dict(ckpt["model_state"])
         if ckpt["optimizer_state"] is not None:
             optimizer.load_state_dict(ckpt["optimizer_state"])

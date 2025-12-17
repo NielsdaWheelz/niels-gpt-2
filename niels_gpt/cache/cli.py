@@ -90,6 +90,17 @@ def build_all(
     shard_bytes: int,
     roam_dir: str | None,
 ) -> None:
+    def _shutdown_arrow():
+        """Try to tear down pyarrow threadpools proactively to avoid exit hangs."""
+        try:
+            import pyarrow as pa  # type: ignore
+
+            pool = pa.default_io_pool()
+            if hasattr(pool, "shutdown"):
+                pool.shutdown(wait=False)
+        except Exception as exc:  # pragma: no cover - best-effort cleanup
+            print(f"warning: pyarrow shutdown failed: {exc}", file=sys.stderr)
+
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
 
@@ -334,6 +345,7 @@ def build_all(
     except Exception as exc:
         print(f"✗ oasst1 failed: {exc}")
 
+    _shutdown_arrow()
     print(f"\n✓ cache build complete: {cache_dir}")
 
 

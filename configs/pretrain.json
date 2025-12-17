@@ -1,34 +1,4 @@
 {
-  "model_cfg": {
-    "V": 256,
-    "T": 128,
-    "C": 256,
-    "L": 4,
-    "H": 4,
-    "d_ff": 512,
-    "dropout": 0.1,
-    "rope_theta": 10000.0
-  },
-  "train_cfg": {
-    "seed": 42,
-    "B": 16,
-    "total_steps": 20000,
-    "eval_every": 200,
-    "eval_steps": 50,
-    "ckpt_every": 1000,
-    "base_lr": 0.0003,
-    "warmup_steps": 200,
-    "min_lr": 0.00003,
-    "grad_clip": 1.0,
-    "accum_steps": 1,
-    "log_every": 50
-  },
-  "sources": {
-    "wiki": 0.784,
-    "roam": 0.196,
-    "primer": 0.02
-  },
-  "val_source": "wiki",
-  "cache_dir": "data/cache/streams"
+  "model_cfg": { "V": 256 }
 }
 

@@ -51,7 +51,8 @@ def main():
     # Load checkpoint and model
     device = get_device()
     ckpt = load_checkpoint(args.ckpt, device=device)
-    cfg = ModelConfig(**ckpt["model_cfg"])
+    model_cfg_dict = {k: v for k, v in ckpt["model_cfg"].items() if k != "_raw"}
+    cfg = ModelConfig(**model_cfg_dict)
     model = GPT(cfg)
     model.load_state_dict(ckpt["model_state"])
     model.to(device)

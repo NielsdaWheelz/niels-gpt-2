@@ -20,6 +20,11 @@ def _weighted_choice(rng: random.Random, patterns: list[dict[str, Any]]) -> str:
 
 def _load_public_facts(root: Path) -> dict[str, Any]:
     path = root / "data" / "public_facts.json"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"public_facts.json not found at {path}. Expected data/public_facts.json; "
+            "provide --out within repo root or point root correctly."
+        )
     return json.loads(path.read_text(encoding="utf-8"))
 
 

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 import shutil
 from collections import deque
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 import numpy as np
 import torch
@@ -13,7 +12,7 @@ import torch.nn.utils as nn_utils
 
 import niels_gpt.paths as paths
 from niels_gpt.cache.sft_dataset import SFTExampleDataset
-from niels_gpt.config import ModelConfig, load_json
+from niels_gpt.config import to_dict
 from niels_gpt.device import get_device
 from niels_gpt.lr_schedule import lr_at_step
 from niels_gpt.model.gpt import GPT
@@ -25,29 +24,14 @@ from train.checkpointing import (
     phase_paths,
     save_checkpoint,
 )
+from train.config import SFTJobConfig, load_sft_job_config
 from train.eval import evaluate_pretrain, evaluate_sft
 from train.pretrain import (
     PretrainSource,
     _load_meta,
-    _load_train_cfg,
     _resolve_resume_path,
     _load_source as _load_stream_source,
 )
-
-
-def _default_sft_sources() -> dict[str, float]:
-    return {"dolly": 0.5, "oasst1": 0.5}
-
-
-def _load_model_cfg_from_config(cfg: dict[str, Any]) -> tuple[ModelConfig, dict[str, Any]]:
-    if "model_cfg" in cfg:
-        model_cfg_dict = cfg["model_cfg"]
-    elif "model_cfg_path" in cfg:
-        model_cfg_dict = load_json(cfg["model_cfg_path"])
-    else:
-        raise ValueError("config must include model_cfg or model_cfg_path")
-    model_cfg = ModelConfig(**model_cfg_dict)
-    return model_cfg, model_cfg_dict
 
 
 def _expected_sft_paths(cache_dir: Path, source: str, split: str) -> tuple[Path, Path, Path]:
@@ -151,7 +135,7 @@ def _load_wiki_val(cache_dir: Path, *, T: int) -> PretrainSource:
 
 
 def run_sft(
-    config: dict[str, Any],
+    config: SFTJobConfig | dict[str, Any],
     *,
     device: str | None = None,
     resume_path: str | None = None,
@@ -162,22 +146,24 @@ def run_sft(
     Run SFT phase. If init_model_path is provided, model weights are loaded from it
     and optimizer state is reset.
     """
+    job = config if isinstance(config, SFTJobConfig) else load_sft_job_config(config)
     device = device or get_device()
     paths.ensure_dirs()
 
-    model_cfg, model_cfg_dict = _load_model_cfg_from_config(config)
-    train_cfg, train_cfg_dict, eval_batches = _load_train_cfg(config.get("train_cfg", {}))
-    model_cfg_saved = {**model_cfg_dict, "_raw": config.get("model_cfg", model_cfg_dict)}
-    train_cfg_saved = {**train_cfg_dict, "_raw": config.get("train_cfg", {})}
+    model_cfg = job.model_cfg
+    train_cfg = job.train_cfg
+    eval_batches = job.eval_batches
+    model_cfg_saved = {**to_dict(model_cfg), "_raw": job.model_cfg_raw}
+    train_cfg_saved = {**to_dict(train_cfg), "_raw": job.train_cfg_raw}
     ckpt_paths: PhasePaths = phase_paths("sft")
 
-    source_probs = config.get("sft_sources", _default_sft_sources())
+    source_probs = job.sft_sources
     if not source_probs:
         raise ValueError("sft_sources must be a non-empty mapping of source -> probability")
-    val_source_choice = config.get("val_source", "wiki")
-    allow_missing_idx = bool(config.get("allow_missing_idx", False))
-    cache_dir = Path(config.get("cache_dir", paths.REPO_ROOT / "data" / "cache" / "sft")).resolve()
-    streams_cache_dir = Path(config.get("streams_cache_dir", paths.REPO_ROOT / "data" / "cache" / "streams")).resolve()
+    val_source_choice = job.val_source
+    allow_missing_idx = job.allow_missing_idx
+    cache_dir = job.cache_dir
+    streams_cache_dir = job.streams_cache_dir
 
     sft_train = _load_sft_sources(
         cache_dir,
@@ -220,14 +206,14 @@ def run_sft(
 
     if init_model_path:
         ckpt = load_checkpoint(init_model_path, device=device)
-        assert_model_config_compatible(ckpt["model_cfg"], model_cfg_dict)
+        assert_model_config_compatible(ckpt["model_cfg"], to_dict(model_cfg))
         model.load_state_dict(ckpt["model_state"])
         best_val_loss = None
         start_step = 0
         print(f"sft init from {init_model_path}")
     elif resume_ckpt:
         ckpt = load_checkpoint(str(resume_ckpt), device=device)
-        assert_model_config_compatible(ckpt["model_cfg"], model_cfg_dict)
+        assert_model_config_compatible(ckpt["model_cfg"], to_dict(model_cfg))
         model.load_state_dict(ckpt["model_state"])
         if ckpt["optimizer_state"] is not None:
             optimizer.load_state_dict(ckpt["optimizer_state"])

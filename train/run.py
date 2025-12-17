@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import sys
 
 from niels_gpt.device import get_device
 
+from train.config import (
+    load_pipeline_config,
+    load_pretrain_job_config,
+    load_sft_job_config,
+)
 from train.pretrain import run_pretrain
 from train.sft import run_sft
-
-
-def _load_json(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _validate_device(device: str | None) -> str | None:
@@ -38,7 +37,7 @@ def main() -> None:
 
     try:
         if args.phase == "pretrain":
-            cfg = _load_json(args.config)
+            cfg = load_pretrain_job_config(args.config)
             run_pretrain(
                 cfg,
                 device=device,
@@ -46,7 +45,7 @@ def main() -> None:
                 no_auto_resume=args.no_resume,
             )
         elif args.phase == "sft":
-            cfg = _load_json(args.config)
+            cfg = load_sft_job_config(args.config)
             run_sft(
                 cfg,
                 device=device,
@@ -54,15 +53,13 @@ def main() -> None:
                 no_auto_resume=args.no_resume,
             )
         else:  # pipeline
-            pipeline_cfg = _load_json(args.config)
-            pretrain_cfg_path = pipeline_cfg.get("pretrain_config_path")
-            sft_cfg_path = pipeline_cfg.get("sft_config_path")
-            if not pretrain_cfg_path or not sft_cfg_path:
-                raise ValueError("pipeline config must include pretrain_config_path and sft_config_path")
+            pipeline_cfg = load_pipeline_config(args.config)
+            pretrain_cfg_path = pipeline_cfg.pretrain_config_path
+            sft_cfg_path = pipeline_cfg.sft_config_path
 
             print("=== pipeline: pretrain ===")
             pretrain_result = run_pretrain(
-                _load_json(pretrain_cfg_path),
+                load_pretrain_job_config(pretrain_cfg_path),
                 device=device,
                 resume_path=args.resume,
                 no_auto_resume=args.no_resume,
@@ -75,7 +72,7 @@ def main() -> None:
 
             print("\n=== pipeline: sft (init from pretrain best) ===")
             run_sft(
-                _load_json(sft_cfg_path),
+                load_sft_job_config(sft_cfg_path),
                 device=device,
                 resume_path=None,
                 no_auto_resume=True,
