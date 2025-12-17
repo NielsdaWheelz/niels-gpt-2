@@ -4,23 +4,41 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import niels_gpt.model.rope as rope
 from niels_gpt.config import ModelConfig
 
 
+class RMSNorm(nn.Module):
+    """Root-mean-square normalization without bias."""
+
+    def __init__(self, dim: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Normalize by root mean square over the last dimension.
+        rms = torch.sqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return x / rms * self.weight
+
+
 class MLP(nn.Module):
     """
-    Feed-forward network with GELU activation.
+    Feed-forward network with SwiGLU activation.
 
-    Architecture: Linear(C, d_ff) -> GELU -> Linear(d_ff, C)
+    Architecture:
+        Linear(C, d_ff) -> gate with SiLU
+        Linear(C, d_ff) -> value
+        out = Linear(d_ff, C)(silu(gate) * value)
     """
 
     def __init__(self, cfg: ModelConfig):
         super().__init__()
-        self.fc1 = nn.Linear(cfg.C, cfg.d_ff, bias=True)
-        self.gelu = nn.GELU()
-        self.fc2 = nn.Linear(cfg.d_ff, cfg.C, bias=True)
+        self.fc_a = nn.Linear(cfg.C, cfg.d_ff, bias=True)
+        self.fc_g = nn.Linear(cfg.C, cfg.d_ff, bias=True)
+        self.fc_out = nn.Linear(cfg.d_ff, cfg.C, bias=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -32,10 +50,11 @@ class MLP(nn.Module):
         Returns:
             Output tensor, shape (B, T, C).
         """
-        x = self.fc1(x)
-        x = self.gelu(x)
-        x = self.fc2(x)
-        return x
+        a = self.fc_a(x)
+        g = F.silu(self.fc_g(x))
+        h = g * a
+        out = self.fc_out(h)
+        return out
 
 
 class CausalSelfAttention(nn.Module):
@@ -144,7 +163,7 @@ class CausalSelfAttention(nn.Module):
 
 class Block(nn.Module):
     """
-    Pre-norm transformer block with causal self-attention and MLP.
+    Pre-norm transformer block with causal self-attention and SwiGLU MLP.
 
     Architecture:
         x = x + dropout(attn(ln1(x)))
@@ -153,9 +172,9 @@ class Block(nn.Module):
 
     def __init__(self, cfg: ModelConfig):
         super().__init__()
-        self.ln1 = nn.LayerNorm(cfg.C, eps=1e-5)
+        self.ln1 = RMSNorm(cfg.C, eps=1e-5)
         self.attn = CausalSelfAttention(cfg)
-        self.ln2 = nn.LayerNorm(cfg.C, eps=1e-5)
+        self.ln2 = RMSNorm(cfg.C, eps=1e-5)
         self.mlp = MLP(cfg)
         self.dropout = nn.Dropout(cfg.dropout)
 
@@ -200,6 +219,7 @@ def init_weights(module: nn.Module) -> None:
         - nn.Linear: weight ~ Normal(0, 0.02), bias = 0 (if present)
         - nn.Embedding: weight ~ Normal(0, 0.02)
         - nn.LayerNorm: weight = 1, bias = 0
+        - RMSNorm: weight = 1
 
     Safe to use with model.apply(init_weights).
     """
@@ -209,6 +229,8 @@ def init_weights(module: nn.Module) -> None:
             module.bias.data.zero_()
     elif isinstance(module, nn.Embedding):
         module.weight.data.normal_(mean=0.0, std=0.02)
+    elif isinstance(module, RMSNorm):
+        module.weight.data.fill_(1.0)
     elif isinstance(module, nn.LayerNorm):
         module.weight.data.fill_(1.0)
         module.bias.data.zero_()

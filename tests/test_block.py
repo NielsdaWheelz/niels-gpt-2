@@ -9,7 +9,7 @@ import torch
 from dataclasses import replace
 
 from niels_gpt.config import ModelConfig
-from niels_gpt.model.blocks import MLP, Block, init_weights
+from niels_gpt.model.blocks import MLP, Block, RMSNorm, init_weights
 
 
 def get_device() -> str:
@@ -19,9 +19,13 @@ def get_device() -> str:
     return "cpu"
 
 
+def tiny_cfg() -> ModelConfig:
+    return ModelConfig(V=128, T=32, C=64, L=2, H=4, d_ff=256, dropout=0.1)
+
+
 def test_mlp_shape_and_finite_grads():
     """Test MLP returns correct shape and produces finite gradients."""
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     mlp = MLP(cfg)
     mlp.apply(init_weights)
 
@@ -50,7 +54,7 @@ def test_mlp_shape_and_finite_grads():
 
 def test_block_forward_backward_and_return_attn():
     """Test Block forward/backward pass and return_attn contract."""
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     block = Block(cfg)
     block.apply(init_weights)
 
@@ -91,7 +95,7 @@ def test_block_forward_backward_and_return_attn():
 def test_dropout_semantics():
     """Test dropout is deterministic in eval mode and stochastic in train mode."""
     # Create config with dropout=0.5 for reliable test
-    cfg_drop = replace(ModelConfig(), dropout=0.5)
+    cfg_drop = replace(tiny_cfg(), dropout=0.5)
     block = Block(cfg_drop)
     block.apply(init_weights)
 
@@ -119,26 +123,26 @@ def test_dropout_semantics():
 
 
 def test_init_weights_sanity():
-    """Test init_weights sets LayerNorm and Linear weights correctly."""
-    cfg = ModelConfig()
+    """Test init_weights sets RMSNorm and Linear weights correctly."""
+    cfg = tiny_cfg()
     block = Block(cfg)
     block.apply(init_weights)
 
-    # Check LayerNorm initialization (ln1)
+    # Check RMSNorm initialization (ln1)
     assert torch.allclose(
         block.ln1.weight, torch.ones_like(block.ln1.weight)
-    ), "LayerNorm weight should be initialized to ones"
-    assert torch.allclose(
-        block.ln1.bias, torch.zeros_like(block.ln1.bias)
-    ), "LayerNorm bias should be initialized to zeros"
+    ), "RMSNorm weight should be initialized to ones"
+    assert not hasattr(block.ln1, "bias"), "RMSNorm should not have a bias parameter"
 
     # Check Linear initialization has reasonable std (should be ~0.02)
-    # Check MLP fc1 as a sample
-    weight_std = block.mlp.fc1.weight.std().item()
+    weight_std = block.mlp.fc_a.weight.std().item()
     assert 0.005 < weight_std < 0.05, f"Linear weight std {weight_std} should be near 0.02"
     assert torch.allclose(
-        block.mlp.fc1.bias, torch.zeros_like(block.mlp.fc1.bias)
+        block.mlp.fc_a.bias, torch.zeros_like(block.mlp.fc_a.bias)
     ), "Linear bias should be initialized to zeros"
+    assert torch.allclose(
+        block.mlp.fc_out.bias, torch.zeros_like(block.mlp.fc_out.bias)
+    ), "Output Linear bias should be initialized to zeros"
 
 
 def test_block_mps_if_available():
@@ -147,7 +151,7 @@ def test_block_mps_if_available():
     if device == "cpu":
         pytest.skip("MPS not available, skipping MPS test")
 
-    cfg = ModelConfig()
+    cfg = tiny_cfg()
     block = Block(cfg).to(device)
     block.apply(init_weights)
 
@@ -172,3 +176,25 @@ def test_block_mps_if_available():
     for name, param in block.named_parameters():
         if param.grad is not None:
             assert torch.isfinite(param.grad).all(), f"MPS: {name} has non-finite gradients"
+
+
+def test_rmsnorm_has_no_bias():
+    """RMSNorm should expose only a weight parameter."""
+    norm = RMSNorm(dim=64, eps=1e-5)
+    has_bias_param = any("bias" in name for name, _ in norm.named_parameters())
+    assert not has_bias_param, "RMSNorm must not register a bias parameter"
+    assert not hasattr(norm, "bias"), "RMSNorm should not carry a bias attribute"
+
+
+def test_swiglu_projection_shapes():
+    """SwiGLU projections should follow (C->d_ff, C->d_ff, d_ff->C) layout."""
+    cfg = ModelConfig(V=128, T=8, C=512, L=1, H=8, d_ff=1536, dropout=0.1)
+    mlp = MLP(cfg)
+
+    assert mlp.fc_a.weight.shape == (cfg.d_ff, cfg.C)
+    assert mlp.fc_g.weight.shape == (cfg.d_ff, cfg.C)
+    assert mlp.fc_out.weight.shape == (cfg.C, cfg.d_ff)
+
+    x = torch.randn(2, 3, cfg.C)
+    out = mlp(x)
+    assert out.shape == (2, 3, cfg.C)

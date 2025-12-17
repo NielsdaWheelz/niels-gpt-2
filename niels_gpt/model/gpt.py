@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 from niels_gpt.config import ModelConfig
-from niels_gpt.model.blocks import Block, init_weights
+from niels_gpt.model.blocks import Block, RMSNorm, init_weights
 
 
 class AttnTrace(TypedDict):
@@ -51,8 +51,8 @@ class GPT(nn.Module):
         # Transformer blocks
         self.blocks = nn.ModuleList([Block(cfg) for _ in range(cfg.L)])
 
-        # Final layer norm
-        self.ln_f = nn.LayerNorm(cfg.C, eps=1e-5)
+        # Final RMSNorm
+        self.ln_f = RMSNorm(cfg.C, eps=1e-5)
 
         # LM head (no bias)
         self.lm_head = nn.Linear(cfg.C, cfg.V, bias=False)

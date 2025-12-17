@@ -7,11 +7,11 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ModelConfig:
-    V: int = 256
-    T: int = 384
-    C: int = 384
-    L: int = 6
-    H: int = 4
+    V: int
+    T: int = 1024
+    C: int = 512
+    L: int = 8
+    H: int = 8
     d_ff: int = 1536
     dropout: float = 0.1
     rope_theta: float = 10000.0

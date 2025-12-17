@@ -221,7 +221,7 @@ def build_sources(cfg: StreamBuildConfig) -> Tuple[BytesSources, BytesSources]:
       - else rebuild, write .bin and .meta.json
     """
     cache_dir = Path(cfg.cache_dir)
-    T = ModelConfig().T
+    T = ModelConfig(V=256).T
 
     sources_train: BytesSources = {}
     sources_val: BytesSources = {}

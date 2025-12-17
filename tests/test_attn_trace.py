@@ -115,6 +115,7 @@ def test_trace_shapes_and_sums(model: GPT, sample_input: torch.LongTensor) -> No
     assert attn_row.shape == expected_shape, (
         f"attn_row shape mismatch: expected {expected_shape}, got {attn_row.shape}"
     )
+    assert attn_row.dtype == torch.float32, "attn_row should be float32"
 
     # Check attn_full is None when return_full_attn=False
     assert trace["attn_full"] is None, (
@@ -157,6 +158,7 @@ def test_full_attn_optional(model: GPT, sample_input: torch.LongTensor) -> None:
     assert attn_full.shape == expected_shape, (
         f"attn_full shape mismatch: expected {expected_shape}, got {attn_full.shape}"
     )
+    assert attn_full.dtype == torch.float32, "attn_full should be float32"
 
     # Check that attn_full sums to 1.0 along last dimension
     attn_full_sums = attn_full.sum(dim=-1)  # (B, H, t)
