@@ -1,0 +1,12 @@
+{
+  "model_cfg": { "V": 256 },
+  "train_cfg": {
+    "B": 8,
+    "total_steps": 10000
+  },
+  "sft_sources": {
+    "dolly": 0.6,
+    "oasst1": 0.4
+  }
+}
+

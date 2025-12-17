@@ -7,6 +7,7 @@ dependencies = [
     "torch",
     "datasets",
     "sentencepiece",
+    "pydantic>=2.7,<3",
 ]
 
 [project.optional-dependencies]
