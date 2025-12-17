@@ -215,3 +215,8 @@ data/cache/streams/
 
 # Model checkpoints (hosted on Hugging Face)
 checkpoints/*.pt
+
+# Tokenizer artifacts
+artifacts/tokenizer/*.model
+artifacts/tokenizer/*.json
+artifacts/tokenizer/*.vocab
