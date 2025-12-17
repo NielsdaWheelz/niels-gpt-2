@@ -40,17 +40,128 @@ pytest -q
 - checkpoints land in `checkpoints/` (`latest.pt`, `best.pt`, periodic).
 - pretrained checkpoint hosted on [Hugging Face](https://huggingface.co/nnandal/niels-gpt); run `python tools/download_checkpoint.py` to fetch.
 
-### train
+### train (pr-06 runner)
+Prereqs:
+- caches must exist:
+  - pretrain: `data/cache/streams/{wiki,roam,primer}_{train,val}.bin + .meta.json`
+  - sft: `data/cache/sft/{dolly,oasst1}_{train,val}.bin + .meta.json` (+ `.idx.npy` per split; missing idx defaults to hard error unless you set `allow_missing_idx=true`)
+- configs point to those cache dirs (`cache_dir`, `streams_cache_dir`).
+- `--device` accepts `cpu|mps` (runner auto-picks if omitted).
+
+Commands:
+- Pretrain:
+  ```bash
+  python -m train.run --phase pretrain --config configs/pretrain.json \
+    [--device cpu|mps] \
+    [--resume /path/to/ckpt.pt | --no-resume]
+  ```
+- SFT (expects sft caches; optional `allow_missing_idx=true` in config to synthesize trivial idx):
+  ```bash
+  python -m train.run --phase sft --config configs/sft.json \
+    [--device cpu|mps] \
+    [--resume /path/to/ckpt.pt | --no-resume]
+  ```
+- Pipeline (runs pretrain, then sft init from pretrain best):
+  ```bash
+  python -m train.run --phase pipeline --config configs/pipeline.json \
+    [--device cpu|mps] \
+    [--no-resume]  # recommended for fresh pipeline
+  ```
+
+Checkpoint layout:
+- Phase-scoped histories:
+  - `checkpoints/pretrain/{latest.pt,best.pt,step_XXXXXXX.pt}`
+  - `checkpoints/sft/{latest.pt,best.pt,step_XXXXXXX.pt}`
+- Root copies for serving/pr-8 compatibility:
+  - `checkpoints/latest.pt` (copy of phase latest at save time)
+  - `checkpoints/best.pt` (copy of current best; after pipeline this is sft best)
+- Best updates only on improved eval; eval cadence from config `eval_every`.
+
+Resume precedence:
+1. `--resume PATH` if provided.
+2. `--no-resume` → always start fresh.
+3. Else auto-resume from phase latest if present; no root fallback for single phases (to avoid wrong-phase resumes).
+
+Config provenance:
+- Checkpoints store both resolved config and `_raw` input sections for auditing.
+
+### command reference (clone → caches → train → chat)
+
+Environment:
 ```bash
-python -m niels_gpt.train --config configs/smoke.json \
-  [--device cpu|mps|cuda] \
-  [--resume /path/to/ckpt.pt]
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
-notes:
-- only wiki is required; roam/primer are used if present.
-- seed in the config drives deterministic splits and sampling.
-- first run needs internet for wikitext; huggingface cache is respected afterward.
-- checkpoints are saved automatically (latest, best, periodic).
+
+1) Build caches (pretrain + SFT):
+```bash
+python -m niels_gpt.cache.cli build-all \
+  --cache-dir data/cache \
+  --seed 42 \
+  --fineweb-train-tokens 200000000 \
+  --fineweb-val-tokens 5000000 \
+  --shard-bytes 134217728 \
+  --roam-dir data/.roam-data
+```
+Notes: downloads HF datasets (needs network); writes streams under `cache/streams` and sft under `cache/sft`. `--roam-dir` optional; set to a real directory to include roam notes.
+
+2) Train tokenizer (if rebuilding):
+```bash
+python scripts/train_tokenizer.py \
+  --input_glob "data/**/*.txt" \
+  --input_glob ".roam-data/**/*.md" \
+  --out_dir artifacts/tokenizer \
+  --vocab_size 16384 \
+  --seed 42 \
+  --model_type unigram
+```
+Writes `spm.model` + `tokenizer_meta.json`.
+
+3) Train (new runner):
+- Pretrain / SFT / Pipeline commands above.
+- Legacy single-phase trainer (older flow, uses byte streams):
+  ```bash
+  python -m niels_gpt.train --config configs/train.json \
+    [--device cpu|mps] \
+    [--resume checkpoints/latest.pt]
+  ```
+
+4) Chat / inference:
+```bash
+python -m niels_gpt.chat_cli --ckpt checkpoints/best.pt \
+  --max-new-tokens 256 \
+  --temperature 0.9 \
+  --top-k 50 \
+  --seed 42 \
+  [--system "text"] \
+  [--system-file path/to/system.txt]
+```
+`/exit` to quit.
+
+5) Generate primer dialogues:
+```bash
+python tools/generate_primer.py \
+  --out data/primer.generated.txt \
+  --seed 0 \
+  --n-per-category 30 \
+  --shuffle
+```
+
+6) Upload checkpoint to Hugging Face:
+```bash
+python tools/upload_checkpoint.py --checkpoint checkpoints/best.pt
+```
+Requires `huggingface-cli login` and `pip install huggingface-hub`.
+
+7) Smoke cache builder (network):
+```bash
+python -m scripts.smoke_loaders
+```
+
+Cache expectations recap:
+- Streams: `data/cache/streams/{wiki,roam,primer}_{train,val}.bin + .meta.json`
+- SFT: `data/cache/sft/{dolly,oasst1}_{train,val}.bin + .meta.json + .idx.npy` (set `allow_missing_idx=true` in sft config only if you intentionally want trivial idx synthesis).
 
 ### chat / inference
 ```bash

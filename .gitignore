@@ -207,18 +207,17 @@ marimo/_lsp/
 __marimo__/
 
 # data
-roam-data/
-.roam-data/
-data/roam-data/
 data/.roam-data/
 data/cache/streams/
+data/*.txt
+data/*.json
 
 # Model checkpoints (hosted on Hugging Face)
 checkpoints/*.pt
+checkpoints/pretrain/
+checkpoints/sft/
 
 # Tokenizer artifacts
-artifacts/tokenizer/*.model
-artifacts/tokenizer/*.json
-artifacts/tokenizer/*.vocab
+artifacts/tokenizer/
 
 # Token caches

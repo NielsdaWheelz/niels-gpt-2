@@ -1,0 +1,5 @@
+{
+  "pretrain_config_path": "configs/pretrain.json",
+  "sft_config_path": "configs/sft.json"
+}
+
