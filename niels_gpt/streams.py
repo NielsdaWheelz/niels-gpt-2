@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
 
-from niels_gpt.config import ModelConfig
 from niels_gpt.data import (
     list_roam_paths,
     load_primer_text,
@@ -16,6 +15,7 @@ from niels_gpt.data import (
     split_primer_dialogues,
     split_roam_paths,
 )
+from niels_gpt.settings import default_settings
 
 BytesSources = Dict[str, bytes]  # keys: "wiki" | "roam" | "primer"
 
@@ -221,7 +221,7 @@ def build_sources(cfg: StreamBuildConfig) -> Tuple[BytesSources, BytesSources]:
       - else rebuild, write .bin and .meta.json
     """
     cache_dir = Path(cfg.cache_dir)
-    T = ModelConfig(V=256).T
+    T = default_settings().model.T
 
     sources_train: BytesSources = {}
     sources_val: BytesSources = {}

@@ -18,6 +18,7 @@ def test_eval_restores_training_mode():
         H=4,
         d_ff=512,
         dropout=0.1,
+        rope_theta=10000.0,
     )
 
     device = "cpu"
@@ -57,6 +58,7 @@ def test_eval_preserves_eval_mode():
         H=4,
         d_ff=512,
         dropout=0.1,
+        rope_theta=10000.0,
     )
 
     device = "cpu"
@@ -96,6 +98,7 @@ def test_eval_restores_mode_on_exception():
         H=4,
         d_ff=512,
         dropout=0.1,
+        rope_theta=10000.0,
     )
 
     device = "cpu"

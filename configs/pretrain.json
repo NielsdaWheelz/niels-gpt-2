@@ -1,9 +1,11 @@
 {
-  "model_cfg": { "V": 256 },
-  "train_cfg": {
-    "amp": true,
-    "amp_dtype": "fp16",
-    "activation_checkpointing": false
+  "model": { "V": 256 },
+  "training": {
+    "pretrain": {
+      "amp": true,
+      "amp_dtype": "fp16",
+      "activation_checkpointing": false
+    }
   }
 }
 

@@ -13,9 +13,9 @@ from niels_gpt.config import ModelConfig
 class RMSNorm(nn.Module):
     """Root-mean-square normalization without bias."""
 
-    def __init__(self, dim: int, eps: float = 1e-5):
+    def __init__(self, dim: int, eps: float | None = None):
         super().__init__()
-        self.eps = eps
+        self.eps = 1e-5 if eps is None else eps
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

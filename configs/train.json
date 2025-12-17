@@ -9,22 +9,26 @@
     "dropout": 0.1,
     "rope_theta": 10000.0
   },
-  "train": {
-    "seed": 42,
-    "B": 16,
-    "total_steps": 20000,
-    "eval_every": 1000,
-    "eval_steps": 25,
-    "ckpt_every": 1000,
-    "base_lr": 0.0003,
-    "warmup_steps": 200,
-    "min_lr": 0.00003,
-    "grad_clip": 1.0,
-    "accum_steps": 4,
-    "p_train": {"wiki": 0.72, "roam": 0.18, "primer": 0.10},
-    "log_every": 50,
-    "amp": true,
-    "amp_dtype": "fp16",
-    "activation_checkpointing": false
+  "training": {
+    "pretrain": {
+      "seed": 42,
+      "micro_B": 16,
+      "total_steps": 20000,
+      "eval_every": 1000,
+      "eval_steps": 25,
+      "ckpt_every": 1000,
+      "base_lr": 0.0003,
+      "warmup_steps": 200,
+      "min_lr": 0.00003,
+      "grad_clip": 1.0,
+      "accum_steps": 4,
+      "log_every": 50,
+      "amp": true,
+      "amp_dtype": "fp16",
+      "activation_checkpointing": false
+    }
+  },
+  "data": {
+    "mix_pretrain": {"wiki": 0.72, "roam": 0.18, "primer": 0.10}
   }
 }

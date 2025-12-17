@@ -153,15 +153,20 @@ def run_trial(trial_cfg: dict) -> dict:
     torch.manual_seed(seed)
 
     # Build model config
+    required_fields = ("V", "T", "C", "L", "H", "d_ff", "dropout", "rope_theta")
+    missing = [f for f in required_fields if f not in model_cfg_dict]
+    if missing:
+        raise ValueError(f"model config missing required fields: {missing}")
+
     model_cfg = ModelConfig(
         V=model_cfg_dict["V"],
-        T=model_cfg_dict.get("T", 1024),
-        C=model_cfg_dict.get("C", 512),
-        L=model_cfg_dict.get("L", 8),
-        H=model_cfg_dict.get("H", 8),
-        d_ff=model_cfg_dict.get("d_ff", 1536),
-        dropout=model_cfg_dict.get("dropout", 0.1),
-        rope_theta=model_cfg_dict.get("rope_theta", 10000.0),
+        T=model_cfg_dict["T"],
+        C=model_cfg_dict["C"],
+        L=model_cfg_dict["L"],
+        H=model_cfg_dict["H"],
+        d_ff=model_cfg_dict["d_ff"],
+        dropout=model_cfg_dict["dropout"],
+        rope_theta=model_cfg_dict["rope_theta"],
     )
 
     # Instantiate model

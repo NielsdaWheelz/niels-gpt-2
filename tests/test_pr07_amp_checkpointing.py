@@ -19,15 +19,12 @@ class TestConfigDefaults:
     """Test that old configs without new fields still load correctly."""
 
     def test_old_config_loads_with_defaults(self):
-        """Old config JSON missing new fields should load with correct defaults."""
-        old_config = {
-            "model_cfg": {"V": 256},
-            "train_cfg": {
-                "B": 8,
-                "total_steps": 100,
-            },
+        """Settings-style overrides missing new fields should load with defaults."""
+        overrides = {
+            "model": {"V": 256},
+            "training": {"pretrain": {"micro_B": 8, "total_steps": 100}},
         }
-        job_config = load_pretrain_job_config(old_config)
+        job_config = load_pretrain_job_config(overrides, run_id="test-old")
         train_cfg = job_config.train_cfg
 
         # New fields should have correct defaults
@@ -37,8 +34,8 @@ class TestConfigDefaults:
 
     def test_train_cfg_defaults_via_loader(self):
         """Loader should supply defaults for missing training fields."""
-        cfg = {"model_cfg": {"V": 128}, "train_cfg": {}}
-        job_config = load_pretrain_job_config(cfg)
+        cfg = {"model": {"V": 128}, "training": {"pretrain": {}}}
+        job_config = load_pretrain_job_config(cfg, run_id="test-defaults")
         train_cfg = job_config.train_cfg
         assert train_cfg.amp is True
         assert train_cfg.amp_dtype == "fp16"
@@ -88,7 +85,7 @@ class TestCPUTrainingSmoke:
     def test_training_two_steps_with_accum(self):
         """Run 2 optimizer steps with accum_steps=2, verify loss finite and step increments."""
         # Tiny model config
-        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0)
+        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0, rope_theta=10000.0)
         model = GPT(cfg)
         model.train()
 
@@ -133,7 +130,7 @@ class TestActivationCheckpointingSmoke:
     def test_checkpointing_functional_equivalence(self):
         """Verify checkpointing produces same gradients as non-checkpointed forward."""
         torch.manual_seed(42)
-        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0)
+        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0, rope_theta=10000.0)
 
         # Create two identical models
         model_no_ckpt = GPT(cfg)
@@ -178,7 +175,7 @@ class TestActivationCheckpointingSmoke:
 
     def test_checkpointing_enabled_training(self):
         """Run training with activation_checkpointing=True, verify loss finite."""
-        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0)
+        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0, rope_theta=10000.0)
         model = GPT(cfg)
         model.activation_checkpointing = True
         model.train()
@@ -209,7 +206,7 @@ class TestActivationCheckpointingSmoke:
 
     def test_checkpointing_disabled_in_eval(self):
         """Activation checkpointing should be disabled during eval mode."""
-        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0)
+        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0, rope_theta=10000.0)
         model = GPT(cfg)
         model.activation_checkpointing = True
 
@@ -232,7 +229,7 @@ class TestMPSAMPSmoke:
     def test_mps_amp_fp16_one_step(self):
         """Run 1 optimizer step with amp=True fp16 on MPS, verify loss finite."""
         device = "mps"
-        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0)
+        cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0, rope_theta=10000.0)
         model = GPT(cfg).to(device)
         model.train()
 
@@ -264,7 +261,7 @@ class TestCheckpointResumeCompatibility:
             ckpt_path = Path(tmpdir) / "test.pt"
 
             # Create model and save
-            cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0)
+            cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0, rope_theta=10000.0)
             model = GPT(cfg)
 
             model_cfg_dict = {
@@ -291,7 +288,6 @@ class TestCheckpointResumeCompatibility:
                 "min_lr": 1e-5,
                 "grad_clip": 1.0,
                 "accum_steps": 2,
-                "p_train": {"wiki": 1.0},
                 "amp": True,
                 "amp_dtype": "fp16",
                 "activation_checkpointing": True,
@@ -324,7 +320,7 @@ class TestCheckpointResumeCompatibility:
         with tempfile.TemporaryDirectory() as tmpdir:
             ckpt_path = Path(tmpdir) / "resume_test.pt"
 
-            cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0)
+            cfg = ModelConfig(V=128, T=16, C=64, L=2, H=2, d_ff=128, dropout=0.0, rope_theta=10000.0)
             model = GPT(cfg)
             optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 

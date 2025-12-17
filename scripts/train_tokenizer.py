@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Train a SentencePiece tokenizer from local text files.
+Train a SentencePiece tokenizer from local text files plus optional streamed corpora (wikitext, fineweb-edu).
 
 Usage:
     python scripts/train_tokenizer.py \
         --input_glob "data/**/*.txt" \
         --input_glob ".roam-data/**/*.md" \
+        --include_wikitext \
+        --fineweb_bytes 20000000 \
         --out_dir artifacts/tokenizer \
         --vocab_size 16000 \
         --seed 42
@@ -19,6 +21,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import Iterable
 
 import sentencepiece as spm
 
@@ -72,40 +75,29 @@ def collect_input_files(globs: list[str], repo_root: Path) -> list[Path]:
     return [f for f in unique_files if f.is_file()]
 
 
-def compute_inputs_sha256(files: list[Path]) -> str:
-    """
-    Compute SHA256 hash of concatenated file bytes in deterministic order.
-
-    Args:
-        files: Sorted list of file paths
-
-    Returns:
-        Hex string of SHA256 hash
-    """
+def compute_file_sha256(path: Path) -> str:
+    """Compute SHA256 hash of a single file."""
     hasher = hashlib.sha256()
-    for path in files:
-        with open(path, "rb") as f:
-            hasher.update(f.read())
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
     return hasher.hexdigest()
 
 
-def prepare_training_text(files: list[Path], temp_file: Path) -> None:
+def prepare_training_text(files: list[Path], extra_texts: Iterable[str], temp_file: Path) -> None:
     """
-    Read all files, normalize line endings, and write to temp file.
-
-    - Read as UTF-8 with errors="replace"
-    - Normalize \\r\\n to \\n
-    - Write all text to a single temp file for sentencepiece training
+    Read all files and extra text sources, normalize line endings, and write to temp file.
     """
     with open(temp_file, "w", encoding="utf-8") as out:
         for path in files:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
-                # Normalize line endings
-                text = text.replace("\r\n", "\n")
+                text = f.read().replace("\r\n", "\n")
                 out.write(text)
-                # Add separator between files
                 out.write("\n")
+        for text in extra_texts:
+            norm = text.replace("\r\n", "\n")
+            out.write(norm)
+            out.write("\n")
 
 
 def train_sentencepiece(
@@ -123,10 +115,9 @@ def train_sentencepiece(
         vocab_size: Target vocabulary size
         seed: Random seed for training (recorded in metadata but not enforced)
     """
-    # Convert special tokens to comma-separated string
-    # Use control_symbols - they get reserved IDs and decode to empty
-    # We never encode them from text; we insert them by ID in chat templates
-    control_symbols = ",".join(SPECIAL_TOKENS)
+    # user_defined_symbols ensures the tokens are regular pieces that encode/decode
+    # exactly as provided (no empty decode like control symbols).
+    user_defined_symbols = ",".join(SPECIAL_TOKENS)
 
     spm.SentencePieceTrainer.train(
         input=str(input_file),
@@ -135,23 +126,53 @@ def train_sentencepiece(
         model_type="unigram",
         character_coverage=1.0,
         byte_fallback=True,
-        control_symbols=control_symbols,
+        user_defined_symbols=user_defined_symbols,
+        add_dummy_prefix=False,
         # Prevent splitting digits
         split_digits=False,
         # Determinism controls (best-effort)
         input_sentence_size=0,  # Use all sentences; no sampling
         shuffle_input_sentence=False,  # No shuffling
         num_threads=1,  # Avoid nondeterministic parallelism
-        # Use default normalization (nmt_nfkc) and add_dummy_prefix (True)
+        # Use default normalization (nmt_nfkc)
     )
+
+
+def _iter_wikitext(split: str, limit_bytes: int | None) -> Iterable[str]:
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError("datasets is required for --include_wikitext") from exc
+
+    ds = load_dataset("wikitext", "wikitext-103-raw-v1", split=split, streaming=True)
+    seen = 0
+    for row in ds:
+        text = row.get("text", "")
+        seen += len(text.encode("utf-8"))
+        yield text
+        if limit_bytes is not None and seen >= limit_bytes:
+            break
+
+
+def _iter_fineweb(dataset: str, name: str, split: str, limit_bytes: int) -> Iterable[str]:
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError("datasets is required for --fineweb_bytes") from exc
+
+    ds = load_dataset(dataset, name=name, split=split, streaming=True)
+    seen = 0
+    for row in ds:
+        text = row.get("text", "")
+        seen += len(text.encode("utf-8"))
+        yield text
+        if limit_bytes and seen >= limit_bytes:
+            break
 
 
 def validate_special_tokens(model_path: Path) -> dict[str, int]:
     """
-    Validate that each special token exists in vocabulary.
-
-    Note: We insert special tokens by ID (not by encoding strings),
-    so we only need to verify they're in the vocab with distinct IDs.
+    Validate that each special token exists, encodes to one piece, and decodes identically.
 
     Args:
         model_path: Path to trained .model file
@@ -165,24 +186,36 @@ def validate_special_tokens(model_path: Path) -> dict[str, int]:
     sp = spm.SentencePieceProcessor()
     sp.Load(str(model_path))
 
+    unk_piece_id = sp.piece_to_id("<unk>")
+    if unk_piece_id != sp.unk_id():
+        raise ValueError(f"<unk> piece/id mismatch: piece_to_id={unk_piece_id}, unk_id={sp.unk_id()}")
+
     token_ids = {}
     for token in SPECIAL_TOKENS:
-        # Check if token exists in vocab (control symbols use piece_to_id)
         piece_id = sp.piece_to_id(token)
         if piece_id == sp.unk_id():
             raise ValueError(
                 f"Special token '{token}' not found in vocabulary. "
-                f"Did training fail to reserve control symbols?"
+                "Did training fail to reserve user_defined_symbols?"
             )
-        # Store with simple key (sys, usr, asst, eot)
+        encoded = sp.EncodeAsIds(token)
+        if len(encoded) != 1 or encoded[0] != piece_id:
+            raise ValueError(
+                f"Special token '{token}' must encode to a single matching id "
+                f"(encoded={encoded}, piece_id={piece_id})"
+            )
+        decoded = sp.DecodeIds([piece_id])
+        if decoded != token:
+            raise ValueError(
+                f"Special token '{token}' decode mismatch: id {piece_id} -> '{decoded}'"
+            )
+
         key = token.strip("<|>")
         token_ids[key] = piece_id
 
-    # Verify all IDs are distinct
+    # Verify all IDs are distinct and in range
     if len(set(token_ids.values())) != len(SPECIAL_TOKENS):
-        raise ValueError(
-            f"Special tokens must have distinct IDs, got: {token_ids}"
-        )
+        raise ValueError(f"Special tokens must have distinct IDs, got: {token_ids}")
 
     return token_ids
 
@@ -196,6 +229,7 @@ def write_metadata(
     input_globs: list[str],
     input_files: list[Path],
     inputs_sha256: str,
+    dataset_sources: list[str],
     repo_root: Path,
 ) -> None:
     """
@@ -231,6 +265,7 @@ def write_metadata(
         "input_globs": input_globs,
         "input_files": relative_files,
         "inputs_sha256": inputs_sha256,
+        "dataset_sources": dataset_sources,
     }
 
     with open(meta_path, "w", encoding="utf-8") as f:
@@ -272,6 +307,41 @@ def main() -> int:
         choices=["unigram"],
         help=f"Model type (default: {DEFAULT_MODEL_TYPE})",
     )
+    parser.add_argument(
+        "--include_wikitext",
+        action="store_true",
+        help="Include wikitext-103 train split in tokenizer corpus (streaming).",
+    )
+    parser.add_argument(
+        "--wikitext_limit_bytes",
+        type=int,
+        default=None,
+        help="Optional byte cap for wikitext sample (default: use all).",
+    )
+    parser.add_argument(
+        "--fineweb_bytes",
+        type=int,
+        default=0,
+        help="If >0, stream fineweb-edu up to this many bytes into tokenizer corpus.",
+    )
+    parser.add_argument(
+        "--fineweb_dataset",
+        type=str,
+        default="HuggingFaceFW/fineweb-edu",
+        help="Fineweb dataset id (default: HuggingFaceFW/fineweb-edu).",
+    )
+    parser.add_argument(
+        "--fineweb_name",
+        type=str,
+        default="CC-MAIN-2024-10",
+        help="Fineweb config name (default: CC-MAIN-2024-10).",
+    )
+    parser.add_argument(
+        "--fineweb_split",
+        type=str,
+        default="train",
+        help="Fineweb split to stream (default: train).",
+    )
 
     args = parser.parse_args()
 
@@ -287,23 +357,33 @@ def main() -> int:
         print(f"Patterns tried: {args.input_glob}", file=sys.stderr)
         print(f"Current working directory: {repo_root}", file=sys.stderr)
 
-        # Provide helpful suggestions
         roam_dir = repo_root / ".roam-data"
         if roam_dir.exists() and roam_dir.is_dir():
             print(f"Suggestion: Try '.roam-data/**/*.md' (found .roam-data/ directory)", file=sys.stderr)
         else:
-            # Show top-level directories to help user
             top_level_dirs = sorted([d.name for d in repo_root.iterdir() if d.is_dir() and not d.name.startswith('.')])[:20]
             if top_level_dirs:
                 print(f"Top-level directories: {', '.join(top_level_dirs)}", file=sys.stderr)
 
         return 1
 
-    print(f"Found {len(input_files)} input file(s)")
+    dataset_sources: list[str] = []
+    extra_text_iters: list[Iterable[str]] = []
+    if args.include_wikitext:
+        dataset_sources.append("wikitext-103-raw-v1:train")
+        extra_text_iters.append(_iter_wikitext("train", args.wikitext_limit_bytes))
+    if args.fineweb_bytes and args.fineweb_bytes > 0:
+        dataset_sources.append(
+            f"{args.fineweb_dataset}:{args.fineweb_name}:{args.fineweb_split}:{args.fineweb_bytes}bytes"
+        )
+        extra_text_iters.append(
+            _iter_fineweb(args.fineweb_dataset, args.fineweb_name, args.fineweb_split, args.fineweb_bytes)
+        )
 
-    # Compute hash of inputs for provenance
-    print("Computing input hash...")
-    inputs_sha256 = compute_inputs_sha256(input_files)
+    def _extra_chain() -> Iterable[str]:
+        for it in extra_text_iters:
+            for txt in it:
+                yield txt
 
     # Prepare output directory
     out_dir = Path(args.out_dir)
@@ -319,7 +399,11 @@ def main() -> int:
         temp_path = Path(tmp.name)
 
     try:
-        prepare_training_text(input_files, temp_path)
+        prepare_training_text(input_files, _extra_chain(), temp_path)
+
+        # Compute hash of combined inputs for provenance
+        print("Computing input hash...")
+        inputs_sha256 = compute_file_sha256(temp_path)
 
         # Train tokenizer
         print(f"Training SentencePiece tokenizer (vocab_size={args.vocab_size}, seed={args.seed})...")
@@ -340,6 +424,7 @@ def main() -> int:
             args.input_glob,
             input_files,
             inputs_sha256,
+            dataset_sources,
             repo_root,
         )
 

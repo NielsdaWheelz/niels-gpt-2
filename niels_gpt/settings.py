@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
-from dataclasses import dataclass
+import uuid
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,6 +32,28 @@ def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, An
 def _load_json(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _sha256(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _now_run_id() -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    suffix = uuid.uuid4().hex[:8]
+    return f"{ts}-{suffix}"
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
 
 
 # ----------------------------- tokenizer settings --------------------------- #
@@ -379,7 +404,41 @@ class ResolvedSettings:
     banned_token_ids: list[int]
     phase: Literal["pretrain", "sft", "pipeline"]
     overrides: dict[str, Any]
-    legacy_format: bool
+    overrides_source: str | None
+    run_id: str
+    resolved_path: Path | None
+    tokenizer_sha256: str | None
+    tokenizer_meta: dict[str, Any]
+
+
+def _resolved_payload(resolved: ResolvedSettings) -> dict[str, Any]:
+    generated_at = datetime.now(timezone.utc).isoformat()
+    return {
+        "run_id": resolved.run_id,
+        "phase": resolved.phase,
+        "generated_at_utc": generated_at,
+        "overrides_source": resolved.overrides_source,
+        "overrides": resolved.overrides,
+        "settings": resolved.settings.model_dump(),
+        "model_cfg": asdict(resolved.model_cfg),
+        "train_cfg": asdict(resolved.train_cfg),
+        "special_token_ids": resolved.special_token_ids,
+        "stop_token_id": resolved.stop_token_id,
+        "banned_token_ids": resolved.banned_token_ids,
+        "tokenizer": {
+            "model_path": resolved.settings.tokenizer.model_path,
+            "sha256": resolved.tokenizer_sha256,
+            "special_tokens": resolved.settings.tokenizer.special_tokens.model_dump(),
+            "meta": resolved.tokenizer_meta,
+        },
+    }
+
+
+def _dump_resolved_settings(resolved: ResolvedSettings) -> Path:
+    run_root = paths.REPO_ROOT / "runs" / resolved.run_id
+    path = run_root / "resolved_settings.json"
+    _write_json(path, _resolved_payload(resolved))
+    return path
 
 
 # ----------------------------- API functions -------------------------------- #
@@ -404,114 +463,42 @@ def _looks_legacy(cfg: dict[str, Any]) -> bool:
     return "model_cfg" in cfg or "train_cfg" in cfg or "model" in cfg and "train" in cfg
 
 
-def _legacy_to_overrides(cfg: dict[str, Any], phase: Literal["pretrain", "sft"]) -> dict[str, Any]:
-    """Map legacy config payload into Settings-style overrides."""
-    overrides: dict[str, Any] = {}
-
-    model_part = cfg.get("model_cfg") or cfg.get("model")
-    if model_part:
-        overrides["model"] = model_part
-
-    train_part = cfg.get("train_cfg") or cfg.get("train")
-    if train_part:
-        train_map = {
-            "micro_B": train_part.get("B"),
-            "total_steps": train_part.get("total_steps"),
-            "eval_every": train_part.get("eval_every"),
-            "eval_steps": train_part.get("eval_steps"),
-            "eval_batches": train_part.get("eval_batches"),
-            "log_every": train_part.get("log_every"),
-            "ckpt_every": train_part.get("ckpt_every"),
-            "base_lr": train_part.get("base_lr"),
-            "warmup_steps": train_part.get("warmup_steps"),
-            "min_lr": train_part.get("min_lr"),
-            "weight_decay": train_part.get("weight_decay"),
-            "betas": (
-                train_part["beta1"],
-                train_part["beta2"],
-            )
-            if "beta1" in train_part and "beta2" in train_part
-            else None,
-            "grad_clip": train_part.get("grad_clip"),
-            "accum_steps": train_part.get("accum_steps"),
-            "amp": train_part.get("amp"),
-            "amp_dtype": train_part.get("amp_dtype"),
-            "activation_checkpointing": train_part.get("activation_checkpointing"),
-        }
-        train_phase_overrides = {k: v for k, v in train_map.items() if v is not None}
-        overrides.setdefault("training", {})
-        overrides["training"][phase] = train_phase_overrides
-
-    if phase == "pretrain":
-        if cfg.get("sources"):
-            overrides.setdefault("data", {})
-            overrides["data"]["mix_pretrain"] = cfg["sources"]
-        if cfg.get("val_source"):
-            overrides.setdefault("data", {})
-            overrides["data"]["val_pretrain_source"] = cfg["val_source"]
-        if cfg.get("cache_dir"):
-            overrides.setdefault("data", {}).setdefault("caches", {})
-            overrides["data"]["caches"]["pretrain_token_cache"] = cfg["cache_dir"]
-    else:
-        if cfg.get("sft_sources"):
-            overrides.setdefault("data", {})
-            overrides["data"]["mix_sft"] = cfg["sft_sources"]
-        if cfg.get("val_source"):
-            overrides.setdefault("data", {})
-            overrides["data"]["val_sft_source"] = cfg["val_source"]
-        if cfg.get("cache_dir"):
-            overrides.setdefault("data", {}).setdefault("caches", {})
-            overrides["data"]["caches"]["sft_token_cache"] = cfg["cache_dir"]
-        if cfg.get("streams_cache_dir"):
-            overrides.setdefault("data", {}).setdefault("caches", {})
-            overrides["data"]["caches"]["streams_token_cache"] = cfg["streams_cache_dir"]
-        if "allow_missing_idx" in cfg:
-            overrides.setdefault("data", {})
-            overrides["data"]["allow_missing_idx"] = cfg["allow_missing_idx"]
-        if "assistant_only_loss" in cfg or "pack_sequences" in cfg:
-            overrides["sft_format"] = {}
-            if "assistant_only_loss" in cfg:
-                overrides["sft_format"]["assistant_only_loss"] = cfg["assistant_only_loss"]
-            if "pack_sequences" in cfg:
-                overrides["sft_format"]["pack_sequences"] = cfg["pack_sequences"]
-
-    return overrides
-
-
-def _resolve_special_tokens(tokenizer_settings: TokenizerSettings) -> dict[str, int]:
+def _resolve_special_tokens(tokenizer_settings: TokenizerSettings) -> tuple[dict[str, int], dict[str, Any]]:
     from niels_gpt.tokenizer import SentencePieceTokenizer
 
-    tok = SentencePieceTokenizer(tokenizer_settings.model_path, special_tokens=tokenizer_settings.special_tokens.as_list())
+    tok = SentencePieceTokenizer(
+        tokenizer_settings.model_path, special_tokens=tokenizer_settings.special_tokens.as_list()
+    )
     special_ids = tok.special_token_ids()
-
-    # Enforce presence and best-effort single-piece validation
-    for token_str, token_id in special_ids.items():
-        if token_id == tok._sp.unk_id():  # type: ignore[attr-defined]
-            raise ValueError(f"special token {token_str} missing from vocab")
-        encoded = tok.encode(tokenizer_settings.special_tokens.model_dump()[token_str])
-        if len(encoded) != 1 or encoded[0] != token_id:
-            print(
-                f"warning: special token {token_str} does not encode to a single matching id "
-                f"(encoded={encoded}, piece_id={token_id}); proceed at your own risk"
-            )
-
-    return special_ids
+    meta = {
+        "unk_id": tok._sp.unk_id(),  # type: ignore[attr-defined]
+        "bos_id": tok._sp.bos_id(),  # type: ignore[attr-defined]
+        "eos_id": tok._sp.eos_id(),  # type: ignore[attr-defined]
+        "pad_id": tok._sp.pad_id(),  # type: ignore[attr-defined]
+    }
+    return special_ids, meta
 
 
 def resolve_settings(
     *,
-    phase: Literal["pretrain", "sft", "pipeline"],
+    phase: Literal["pretrain", "sft"],
     overrides_path: str | dict | None,
+    run_id: str | None = None,
+    write_resolved: bool = False,
 ) -> ResolvedSettings:
     """
     Resolve settings for a given phase, applying overrides and legacy translation.
     """
-    if phase == "pipeline":
-        raise ValueError("resolve_settings expects a concrete phase (pretrain or sft)")
+    if phase not in {"pretrain", "sft"}:
+        raise ValueError("resolve_settings expects phase in {'pretrain','sft'}")
 
     overrides_raw = load_overrides(overrides_path)
-    legacy = _looks_legacy(overrides_raw)
-    overrides = _legacy_to_overrides(overrides_raw, phase) if legacy else overrides_raw
+    if not isinstance(overrides_raw, dict):
+        raise ValueError("overrides must be a dict or JSON file path")
+    if _looks_legacy(overrides_raw):
+        raise ValueError("legacy config format (model_cfg/train_cfg) is no longer supported")
+    overrides_source = overrides_path if isinstance(overrides_path, str) else None
+    overrides = overrides_raw
 
     base = default_settings()
     merged_dict = base.model_dump()
@@ -551,7 +538,6 @@ def resolve_settings(
         min_lr=phase_train.min_lr,
         grad_clip=phase_train.grad_clip,
         accum_steps=phase_train.accum_steps,
-        p_train=None,
         amp=phase_train.amp,
         amp_dtype=phase_train.amp_dtype,
         activation_checkpointing=phase_train.activation_checkpointing,
@@ -569,7 +555,7 @@ def resolve_settings(
         best_metric_weights=phase_train.best_metric_weights,
     )
 
-    special_token_ids = _resolve_special_tokens(settings.tokenizer)
+    special_token_ids, tokenizer_meta = _resolve_special_tokens(settings.tokenizer)
     for name, tid in special_token_ids.items():
         if tid >= model_cfg.V:
             raise ValueError(f"special token {name} id {tid} exceeds model vocab size {model_cfg.V}")
@@ -583,7 +569,7 @@ def resolve_settings(
             special_token_ids["asst"],
         ]
 
-    return ResolvedSettings(
+    resolved = ResolvedSettings(
         settings=settings,
         model_cfg=model_cfg,
         train_cfg=train_cfg,
@@ -592,7 +578,16 @@ def resolve_settings(
         banned_token_ids=banned_token_ids,
         phase=phase,
         overrides=overrides_raw,
-        legacy_format=legacy,
+        overrides_source=overrides_source,
+        run_id=run_id or _now_run_id(),
+        resolved_path=None,
+        tokenizer_sha256=_sha256(Path(settings.tokenizer.model_path)),
+        tokenizer_meta=tokenizer_meta,
     )
+
+    if write_resolved:
+        resolved.resolved_path = _dump_resolved_settings(resolved)
+
+    return resolved
 
 

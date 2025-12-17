@@ -198,14 +198,8 @@ python scripts/train_tokenizer.py \
 ```
 Writes `spm.model` + `tokenizer_meta.json`.
 
-3) Train (new runner):
-- Pretrain / SFT / Pipeline commands above.
-- Legacy single-phase trainer (older flow, uses byte streams):
-  ```bash
-  python -m niels_gpt.train --config configs/train.json \
-    [--device cpu|mps] \
-    [--resume checkpoints/latest.pt]
-  ```
+3) Train:
+- use the pretrain / sft / pipeline commands above (settings-style overrides only).
 
 4) Chat / inference:
 ```bash
@@ -268,12 +262,16 @@ writes `data/primer.generated.txt` using `data/public_facts.json` + `tools/prime
 pytest -q
 ```
 
-### command reference
-- smoke train (quick sanity): `python -m niels_gpt.train --config configs/smoke.json`
-- full train: `python -m niels_gpt.train --config configs/train.json`
-- resume: `python -m niels_gpt.train --config configs/train.json --resume checkpoints/latest.pt`
+- ### command reference
+- smoke pretrain: `python -m train.run --phase pretrain --config configs/pretrain_smoke.json`
+- full pretrain: `python -m train.run --phase pretrain --config configs/pretrain.json`
+- sft: `python -m train.run --phase sft --config configs/sft.json`
+- pipeline: `python -m train.run --phase pipeline --config configs/pipeline.json`
+- resume: add `--resume checkpoints/latest.pt` (per-phase)
 - pick device explicitly: add `--device cpu|mps|cuda`
 - chat: `python -m niels_gpt.chat_cli --ckpt checkpoints/latest.pt --max-new-tokens 256 --temperature 0.9 --top-k 50 --seed 42`
+- tokenizer (representative mix): `python scripts/train_tokenizer.py --input_glob "data/.roam-data/**/*.md" --input_glob "data/primer.txt" --include_wikitext --fineweb_bytes 20000000 --out_dir artifacts/tokenizer --vocab_size 16000 --seed 42`
+- tokenizer report: `python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/spm.model --wikitext --fineweb-bytes 20000000`
 - generate primer: `python tools/generate_primer.py --seed 0 --n-per-category 30 --shuffle`
 - download checkpoint: `python tools/download_checkpoint.py`
 - upload checkpoint: `python tools/upload_checkpoint.py` (maintainer only)
@@ -285,7 +283,7 @@ goal: show the whole loop end-to-end with plain language. tokens here are just u
 ### data flow (mermaid)
 ```mermaid
 flowchart TD
-    CFG["config json → ModelConfig + TrainConfig"]
+    CFG["settings overrides → resolved settings → ModelConfig + TrainConfig"]
     STREAMS["build_sources → cached byte streams (wiki/roam/primer)"]
     BATCH["get_batch → sample source + slice to (x,y)"]
     MODEL["GPT forward → embeddings → transformer blocks → logits"]
@@ -301,10 +299,10 @@ flowchart TD
     CHAT --> GEN
 ```
 
-### configs (all in `niels_gpt.config`)
-- `ModelConfig`: `V` vocab=256 bytes; `T` context window (default 384); `C` embedding width (384); `L` layers (6); `H` heads; `d_ff` MLP width (1536); `dropout`; `rope_theta` rotary period.
-- `TrainConfig`: `seed`; `B` batch size; `total_steps`; `eval_every`; `eval_steps`; `log_every`; `ckpt_every`; `base_lr`; `warmup_steps`; `min_lr`; `grad_clip`; `accum_steps` (grad accumulation factor); `p_train` source mix; `amp` (bool, default True); `amp_dtype` ("fp16"/"bf16", default "fp16"); `activation_checkpointing` (bool, default False).
-- `load_config_from_json(path)`: reads `{"model": {...}, "train": {...}}`, validates keys, fills defaults (including default `p_train`).
+### configs and settings
+- defaults live in `niels_gpt/settings.py`; overrides are Settings-shaped JSON dicts (see `docs/settings.md`). `mix_pretrain|mix_sft` replace, other dicts deep-merge.
+- `resolve_settings(phase, overrides, write_resolved=True)` returns `ModelConfig`, `TrainConfig`, special token ids, stop/banned tokens, and writes `runs/<run_id>/resolved_settings.json` plus checkpoint sidecars.
+- `ModelConfig`/`TrainConfig` have no baked-in defaults; they are populated from resolved settings.
 
 ### data sources and caching (`niels_gpt.streams`)
 - `StreamBuildConfig`: paths for wiki/roam/primer, cache dir, validation fractions, delimiter for primer dialogues, seed, toggles for required/optional sources.
@@ -314,7 +312,8 @@ flowchart TD
 - `get_batch(sources, p, B, T, device, generator) -> (x, y)`: samples which source each item comes from using probabilities `p`, slices a random window of length `T+1` bytes, returns `x` (inputs) and `y` (next-token targets) on the target device. Validates lengths and probability sums.
 
 ### tokenizer + chat formatting
-- `tokenizer.encode(text) -> 1D tensor`: utf-8 bytes -> ids; `decode(ids) -> str` reverses.
+- `tokenizer.encode(text) -> 1D tensor`: utf-8 bytes -> ids; `decode(ids) -> str` reverses. Tokenizer trained with byte_fallback on roam+primer+wikitext+fineweb sample; caches carry tokenizer sha256 and are rejected on mismatch.
+- dataset builders hard-fail if raw text contains any special token strings (`<|sys|>`, `<|usr|>`, `<|asst|>`, `<|eot|>`).
 - `chat_format.format_chat(messages)`: turn-structured string ending with `assistant: ` prompt.
 - `chat_format.extract_assistant_reply(generated_text)`: pulls the last assistant reply, stripping trailing tags.
 
@@ -325,23 +324,23 @@ flowchart TD
 - `MLP`: two linear layers with GELU.
 - weights init: normal(0,0.02) for linear/embedding; layernorm weight=1, bias=0.
 
-### training loop (`niels_gpt.train`)
-1) parse args `--config`, optional `--resume`, `--device`.  
+### training loop (`train.pretrain` / `train.sft`)
+1) parse args `--phase`, `--config`, optional `--resume`, `--device`.  
 2) `ensure_dirs()` makes `checkpoints/` and `configs/`.  
-3) load configs; select device (`mps` if available else cpu, unless you passed `--device`).  
+3) resolve settings (merge overrides, validate tokenizer specials, write `runs/<run_id>/resolved_settings.json`); select device (`mps` if available else cpu, unless you passed `--device`).  
 4) seed torch.  
-5) `build_sources` with wiki required; renormalize `p_train` to available sources.  
-6) init model + AdamW (weight decay 0.1, betas 0.9/0.95). If resuming, load state and validate shape-critical config.  
+5) load cached token streams/SFT datasets from `settings.data.caches.*`; build mixtures from `mix_pretrain` or `mix_sft`; pick val source per settings.  
+6) init model + AdamW with optimizer hyperparams from settings; resume if requested and validate shape-critical config.  
 7) for each step: set lr via `lr_at_step` (warmup + cosine); run `accum_steps` microbatches with `loss/accum_steps` backward; `clip_grad_norm`; `optimizer.step`.  
-8) log every `log_every`; eval every `eval_every` on wiki val via `eval.eval_loss_on_stream`; save `best.pt` when val improves.  
-9) checkpoint every `ckpt_every` to `step_xxx.pt` and `latest.pt`; final save at end.
+8) log every `log_every`; eval every `eval_every` on configured val source; save `best.pt` when val improves.  
+9) checkpoint every `ckpt_every` to `step_xxx.pt` and `latest.pt` with settings sidecars; final save at end.
 
 ### evaluation (`niels_gpt.eval`)
 - `eval_loss_on_stream(model, stream, B, T, device, eval_steps, seed)`: deterministic batches from a single stream, averages cross-entropy in eval mode.
 
 ### generation (`niels_gpt.generate`)
-- `generate_ids(model, prompt_ids, max_new_tokens, T, temperature, top_k, top_p, repetition_penalty, eot_id, banned_token_ids, device, generator)`: autoregressive sampling with optional top-k/top-p, repetition penalty, and banned-token masking; stops when `eot_id` is produced; uses CPU generator for deterministic sampling across devices.
-- `generate_text(model, prompt_text, cfg, ...)`: convenience wrapper around encode/generate_ids/decode.
+- `generate_ids(model, prompt_ids, *, max_new_tokens, T, temperature, top_k, top_p, repetition_penalty, eot_id, banned_token_ids, device, generator)`: autoregressive sampling with explicit hyperparams; stops when `eot_id` is produced; uses CPU generator for deterministic sampling across devices.
+- `generate_text(model, prompt_text, *, cfg, generation: GenerationSettings, stop_token_id, banned_token_ids, device, generator)`: convenience wrapper around encode/generate_ids/decode driven by resolved generation settings.
 
 ### chat CLI (`niels_gpt.chat_cli`)
 - loads checkpoint, rebuilds model, seeds CPU generator, builds chat prompt with system/user turns, calls `generate_text` with stop sequences to avoid emitting role tags, extracts assistant reply, loops.

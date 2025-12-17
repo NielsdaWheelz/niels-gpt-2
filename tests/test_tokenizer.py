@@ -186,3 +186,31 @@ def test_load_tokenizer(trained_tokenizer: SentencePieceTokenizer, tmp_path: Pat
     assert tok1.encode(text) == tok2.encode(text)
     assert tok1.vocab_size == tok2.vocab_size
     assert tok1.special_token_ids() == tok2.special_token_ids()
+
+
+def test_special_tokens_single_piece_and_decode(trained_tokenizer: SentencePieceTokenizer):
+    """Special tokens must encode to one id and decode exactly."""
+    token_map = {tok.strip("<|>"): tok for tok in SPECIAL_TOKENS}
+    special_ids = trained_tokenizer.special_token_ids()
+    for name, tid in special_ids.items():
+        token_text = token_map[name]
+        encoded = trained_tokenizer.encode(token_text)
+        assert encoded == [tid], f"{token_text} should encode to single id"
+        assert trained_tokenizer.decode([tid]) == token_text
+
+
+def test_special_token_validation_rejects_multi_piece(monkeypatch, trained_tokenizer: SentencePieceTokenizer):
+    """_validate_special_tokens must fail when encode produces multiple pieces."""
+    token_map = {tok.strip("<|>"): tok for tok in SPECIAL_TOKENS}
+    original_encode = trained_tokenizer._sp.EncodeAsIds  # type: ignore[attr-defined]
+
+    def bad_encode(text: str):
+        if text == token_map["eot"]:
+            pid = trained_tokenizer._sp.piece_to_id(text)  # type: ignore[attr-defined]
+            return [pid, pid]
+        return original_encode(text)
+
+    monkeypatch.setattr(trained_tokenizer._sp, "EncodeAsIds", bad_encode)  # type: ignore[arg-type,attr-defined]
+
+    with pytest.raises(ValueError, match="encode to exactly one piece id"):
+        trained_tokenizer._validate_special_tokens()

@@ -44,7 +44,10 @@ def test_generate_stops_exactly_on_eot():
         T=128,
         temperature=0,
         top_k=None,
+        top_p=None,
+        repetition_penalty=None,
         eot_id=eot,
+        banned_token_ids=None,
         device="cpu",
         generator=None,
     )

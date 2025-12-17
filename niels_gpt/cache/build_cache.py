@@ -135,7 +135,14 @@ def build_pretrain_cache(
     train_tokens = 0
     val_tokens = 0
 
+    special_strings = getattr(tokenizer, "special_tokens", None) or SPECIAL_TOKENS
+
     for text in text_iter:
+        if any(special in text for special in special_strings):
+            raise ValueError(
+                f"found special token string in raw text: {text[:128]!r}... contains one of {special_strings}"
+            )
+
         tokens = tokenizer.encode(text)
         if not tokens:
             continue
@@ -220,6 +227,7 @@ def build_sft_cache(
     val_tokens_path = out_path / "val_tokens.bin"
 
     specials_set = set(tokenizer.special_token_ids().values())
+    special_strings = getattr(tokenizer, "special_tokens", None) or SPECIAL_TOKENS
 
     with open(train_tokens_path, "wb") as train_f, open(val_tokens_path, "wb") as val_f:
         for idx, messages in enumerate(all_examples):
@@ -229,7 +237,7 @@ def build_sft_cache(
             for msg in messages:
                 role = msg["role"]
                 content = msg["content"]
-                if any(tok_str in content for tok_str in SPECIAL_TOKENS):
+                if any(tok_str in content for tok_str in special_strings):
                     malformed = True
                     break
                 content_ids = tokenizer.encode(content)

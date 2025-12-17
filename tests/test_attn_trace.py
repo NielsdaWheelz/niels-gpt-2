@@ -28,6 +28,7 @@ def small_config() -> ModelConfig:
         H=4,
         d_ff=256,
         dropout=0.1,
+        rope_theta=10000.0,
     )
 
 

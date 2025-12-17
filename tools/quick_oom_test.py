@@ -9,9 +9,11 @@ import torch.nn.functional as F
 
 from niels_gpt.config import ModelConfig
 from niels_gpt.model.gpt import GPT
+from niels_gpt.settings import default_settings
 from train.amp_utils import get_amp_context
 
-def test_batch_size(cfg, T, B, device, amp, amp_dtype, activation_checkpointing):
+
+def run_batch_size(cfg, T, B, device, amp, amp_dtype, activation_checkpointing, optimizer_cfg):
     """Test if a specific batch size works."""
     print(f"Testing B={B}...", end=" ", flush=True)
 
@@ -20,7 +22,13 @@ def test_batch_size(cfg, T, B, device, amp, amp_dtype, activation_checkpointing)
         model.activation_checkpointing = activation_checkpointing
         model.train()
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=optimizer_cfg.base_lr,
+            betas=optimizer_cfg.betas,
+            weight_decay=optimizer_cfg.weight_decay,
+            eps=optimizer_cfg.eps,
+        )
         amp_ctx = get_amp_context(device=device, amp_enabled=amp, amp_dtype=amp_dtype)
 
         # Run 3 steps
@@ -65,6 +73,9 @@ def test_batch_size(cfg, T, B, device, amp, amp_dtype, activation_checkpointing)
 
 def main():
     device = "mps"
+    settings = default_settings()
+    model_defaults = settings.model
+    train_defaults = settings.training.pretrain
 
     # Test configs
     configs = [
@@ -94,16 +105,17 @@ def main():
     results = {}
 
     for cfg_spec in configs:
-        cfg = ModelConfig(
-            V=256,
-            C=cfg_spec["C"],
-            L=cfg_spec["L"],
-            H=cfg_spec["C"] // 64,
-            d_ff=cfg_spec["C"] * 4,
-            dropout=0.1,
-        )
-
         for T in T_values:
+            cfg = ModelConfig(
+                V=256,
+                T=T,
+                C=cfg_spec["C"],
+                L=cfg_spec["L"],
+                H=cfg_spec["C"] // 64,
+                d_ff=cfg_spec["C"] * 4,
+                dropout=model_defaults.dropout,
+                rope_theta=model_defaults.rope_theta,
+            )
             print(f"\n{'='*80}")
             print(f"MODEL: {cfg_spec['label']}, T={T}")
             print(f"{'='*80}")
@@ -117,9 +129,15 @@ def main():
 
                 for B in test_Bs:
                     key = f"{cfg_spec['label']}_T{T}_{mode_label}_B{B}"
-                    worked, tps = test_batch_size(
-                        cfg, T, B, device,
-                        mode["amp"], mode["amp_dtype"], mode["activation_checkpointing"]
+                    worked, tps = run_batch_size(
+                        cfg,
+                        T,
+                        B,
+                        device,
+                        mode["amp"],
+                        mode["amp_dtype"],
+                        mode["activation_checkpointing"],
+                        train_defaults,
                     )
 
                     if worked:

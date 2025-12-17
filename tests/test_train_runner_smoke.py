@@ -9,6 +9,7 @@ from train.sft import run_sft
 from train.checkpointing import load_checkpoint
 import niels_gpt.paths as ng_paths
 from niels_gpt.cache.sft_dataset import SFTExampleDataset
+from niels_gpt.cache.meta import sha256_file
 
 
 def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) -> None:
@@ -18,7 +19,13 @@ def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) 
     arr = np.asarray(tokens, dtype="<u2")
     with open(bin_path, "wb") as f:
         f.write(arr.tobytes())
-    meta = {"token_dtype": "uint16-le", "source": source, "split": split}
+    tokenizer_sha = sha256_file(str(ng_paths.REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"))
+    meta = {
+        "token_dtype": "uint16-le",
+        "source": source,
+        "split": split,
+        "tokenizer_sha256": tokenizer_sha,
+    }
     meta_path.write_text(json_dumps(meta))
 
 
@@ -38,11 +45,13 @@ def _write_sft_cache(base: Path, source: str, split: str, sequences: list[list[i
             pos += len(seq)
 
     np.save(idx_path, np.asarray(offsets, dtype=np.int64))
+    tokenizer_sha = sha256_file(str(ng_paths.REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"))
     meta = {
         "token_dtype": "uint16-le",
         "special_token_ids": special,
         "source": source,
         "split": split,
+        "tokenizer_sha256": tokenizer_sha,
     }
     meta_path.write_text(json_dumps(meta))
 
@@ -76,7 +85,7 @@ def test_pretrain_smoke():
                 _write_stream_cache(streams_dir, src, "val", toks)
 
             cfg = {
-                "model_cfg": {
+                "model": {
                     "V": 512,
                     "T": 8,
                     "C": 32,
@@ -86,23 +95,27 @@ def test_pretrain_smoke():
                     "dropout": 0.1,
                     "rope_theta": 10000.0,
                 },
-                "train_cfg": {
-                    "B": 2,
-                    "total_steps": 6,
-                    "eval_every": 2,
-                    "eval_steps": 2,
-                    "ckpt_every": 3,
-                    "base_lr": 0.001,
-                    "warmup_steps": 1,
-                    "min_lr": 1e-5,
-                    "grad_clip": 1.0,
-                    "accum_steps": 1,
-                    "log_every": 1,
-                    "seed": 42,
+                "training": {
+                    "pretrain": {
+                        "micro_B": 2,
+                        "total_steps": 6,
+                        "eval_every": 2,
+                        "eval_steps": 2,
+                        "ckpt_every": 3,
+                        "base_lr": 0.001,
+                        "warmup_steps": 1,
+                        "min_lr": 1e-5,
+                        "grad_clip": 1.0,
+                        "accum_steps": 1,
+                        "log_every": 1,
+                        "seed": 42,
+                    }
                 },
-                "sources": {"wiki": 0.6, "roam": 0.3, "primer": 0.1},
-                "val_source": "wiki",
-                "cache_dir": str(streams_dir),
+                "data": {
+                    "mix_pretrain": {"wiki": 0.6, "roam": 0.3, "primer": 0.1},
+                    "val_pretrain_source": "wiki",
+                    "caches": {"pretrain_token_cache": str(streams_dir)},
+                },
             }
 
             result = run_pretrain(cfg, device="cpu", no_auto_resume=True)
@@ -128,7 +141,7 @@ def test_resume_smoke():
                 _write_stream_cache(streams_dir, src, "val", tokens)
 
             base_cfg = {
-                "model_cfg": {
+                "model": {
                     "V": 256,
                     "T": 8,
                     "C": 32,
@@ -138,26 +151,30 @@ def test_resume_smoke():
                     "dropout": 0.1,
                     "rope_theta": 10000.0,
                 },
-                "sources": {"wiki": 0.7, "roam": 0.2, "primer": 0.1},
-                "val_source": "wiki",
-                "cache_dir": str(streams_dir),
+                "data": {
+                    "mix_pretrain": {"wiki": 0.7, "roam": 0.2, "primer": 0.1},
+                    "val_pretrain_source": "wiki",
+                    "caches": {"pretrain_token_cache": str(streams_dir)},
+                },
             }
 
             cfg_first = {
                 **base_cfg,
-                "train_cfg": {
-                    "B": 2,
-                    "total_steps": 5,
-                    "eval_every": 5,
-                    "eval_steps": 1,
-                    "ckpt_every": 5,
-                    "base_lr": 0.001,
-                    "warmup_steps": 0,
-                    "min_lr": 1e-5,
-                    "grad_clip": 1.0,
-                    "accum_steps": 1,
-                    "log_every": 1,
-                    "seed": 1,
+                "training": {
+                    "pretrain": {
+                        "micro_B": 2,
+                        "total_steps": 5,
+                        "eval_every": 5,
+                        "eval_steps": 1,
+                        "ckpt_every": 5,
+                        "base_lr": 0.001,
+                        "warmup_steps": 0,
+                        "min_lr": 1e-5,
+                        "grad_clip": 1.0,
+                        "accum_steps": 1,
+                        "log_every": 1,
+                        "seed": 1,
+                    }
                 },
             }
             first = run_pretrain(cfg_first, device="cpu", no_auto_resume=True)
@@ -165,11 +182,13 @@ def test_resume_smoke():
 
             cfg_resume = {
                 **base_cfg,
-                "train_cfg": {
-                    **cfg_first["train_cfg"],
-                    "total_steps": 10,
-                    "eval_every": 5,
-                    "ckpt_every": 5,
+                "training": {
+                    "pretrain": {
+                        **cfg_first["training"]["pretrain"],
+                        "total_steps": 10,
+                        "eval_every": 5,
+                        "ckpt_every": 5,
+                    }
                 },
             }
             run_pretrain(
@@ -224,7 +243,7 @@ def test_sft_masking_smoke():
             assert torch.allclose(loss, manual, atol=1e-6)
 
             cfg = {
-                "model_cfg": {
+                "model": {
                     "V": V,
                     "T": len(seq) - 1,
                     "C": 16,
@@ -234,24 +253,30 @@ def test_sft_masking_smoke():
                     "dropout": 0.1,
                     "rope_theta": 10000.0,
                 },
-                "train_cfg": {
-                    "B": 1,
-                    "total_steps": 1,
-                    "eval_every": 1,
-                    "eval_steps": 1,
-                    "ckpt_every": 1,
-                    "base_lr": 0.001,
-                    "warmup_steps": 0,
-                    "min_lr": 0.001,
-                    "grad_clip": 1.0,
-                    "accum_steps": 1,
-                    "log_every": 1,
-                    "seed": 0,
+                "training": {
+                    "sft": {
+                        "micro_B": 1,
+                        "total_steps": 1,
+                        "eval_every": 1,
+                        "eval_steps": 1,
+                        "ckpt_every": 1,
+                        "base_lr": 0.001,
+                        "warmup_steps": 0,
+                        "min_lr": 0.001,
+                        "grad_clip": 1.0,
+                        "accum_steps": 1,
+                        "log_every": 1,
+                        "seed": 0,
+                    }
                 },
-                "sft_sources": {"dolly": 1.0},
-                "val_source": "sft",
-                "cache_dir": str(sft_dir),
-                "streams_cache_dir": str(streams_dir),
+                "data": {
+                    "mix_sft": {"dolly": 1.0},
+                    "val_sft_source": "sft",
+                    "caches": {
+                        "sft_token_cache": str(sft_dir),
+                        "streams_token_cache": str(streams_dir),
+                    },
+                },
             }
 
             # Provide dummy wiki cache for completeness even if unused

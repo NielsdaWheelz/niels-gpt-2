@@ -18,6 +18,7 @@ import torch.nn.functional as F
 
 from niels_gpt.config import ModelConfig
 from niels_gpt.model.gpt import GPT
+from niels_gpt.settings import default_settings
 from train.amp_utils import get_amp_context
 
 try:
@@ -63,6 +64,7 @@ def find_max_batch_size(
     amp: bool,
     amp_dtype: str,
     activation_checkpointing: bool,
+    optimizer_cfg,
     max_B_search: int = 128,
     steps: int = 5,
 ) -> BenchResult:
@@ -89,7 +91,13 @@ def find_max_batch_size(
             model.activation_checkpointing = activation_checkpointing
             model.train()
 
-            optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=optimizer_cfg.base_lr,
+                betas=optimizer_cfg.betas,
+                weight_decay=optimizer_cfg.weight_decay,
+                eps=optimizer_cfg.eps,
+            )
             amp_ctx = get_amp_context(device=device, amp_enabled=amp, amp_dtype=amp_dtype)
 
             # Run 3 warmup steps to trigger peak memory
@@ -146,7 +154,13 @@ def find_max_batch_size(
     model.activation_checkpointing = activation_checkpointing
     model.train()
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=optimizer_cfg.base_lr,
+        betas=optimizer_cfg.betas,
+        weight_decay=optimizer_cfg.weight_decay,
+        eps=optimizer_cfg.eps,
+    )
     amp_ctx = get_amp_context(device=device, amp_enabled=amp, amp_dtype=amp_dtype)
 
     # Warmup
@@ -245,19 +259,24 @@ def main():
     print(f"Throughput measurement: {args.steps} steps")
     print()
 
+    settings = default_settings()
+    model_defaults = settings.model
+    train_defaults = settings.training.pretrain
+
     results = {}
 
     for cfg_spec in configs:
-        model_cfg = ModelConfig(
-            V=256,
-            C=cfg_spec["C"],
-            L=cfg_spec["L"],
-            H=cfg_spec["C"] // 64,  # Keep head dim ~64
-            d_ff=cfg_spec["C"] * 4,  # Standard 4x expansion
-            dropout=0.1,
-        )
-
         for T in context_lengths:
+            model_cfg = ModelConfig(
+                V=256,
+                T=T,
+                C=cfg_spec["C"],
+                L=cfg_spec["L"],
+                H=cfg_spec["C"] // 64,  # Keep head dim ~64
+                d_ff=cfg_spec["C"] * 4,  # Standard 4x expansion
+                dropout=model_defaults.dropout,
+                rope_theta=model_defaults.rope_theta,
+            )
             print(f"\n{'='*100}")
             print(f"MODEL: {cfg_spec['label']}, T={T}")
             print(f"{'='*100}")
@@ -271,6 +290,7 @@ def main():
                         device=args.device,
                         cfg=model_cfg,
                         T=T,
+                        optimizer_cfg=train_defaults,
                         max_B_search=args.max_B_search,
                         steps=args.steps,
                         **mode,

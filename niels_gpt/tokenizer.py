@@ -45,15 +45,8 @@ class SentencePieceTokenizer:
         self.model_path = str(Path(model_path).resolve())
         self._special_tokens = tuple(special_tokens) if special_tokens is not None else SPECIAL_TOKENS
 
-        # Validate that each special token exists in vocabulary
-        # Note: We insert special tokens by ID, not by encoding strings
-        for token in self._special_tokens:
-            piece_id = self._sp.piece_to_id(token)
-            if piece_id == self._sp.unk_id():
-                raise ValueError(
-                    f"Special token '{token}' not found in vocabulary. "
-                    f"The tokenizer model may not have been trained with control symbols."
-                )
+        # Validate special tokens are single-piece, stable, and decode correctly
+        self._validate_special_tokens()
 
     @property
     def vocab_size(self) -> int:
@@ -123,6 +116,38 @@ class SentencePieceTokenizer:
     @property
     def special_tokens(self) -> tuple[str, ...]:
         return self._special_tokens
+
+    def _validate_special_tokens(self) -> None:
+        """
+        Enforce single-piece, id-stable special tokens.
+
+        Raises:
+            ValueError if any special token:
+            - is missing from the vocab
+            - encodes to !=1 piece
+            - encodes to a different id than piece_to_id
+            - decodes incorrectly
+        """
+        vocab_size = self._sp.GetPieceSize()
+        for token in self._special_tokens:
+            piece_id = self._sp.piece_to_id(token)
+            if piece_id == self._sp.unk_id() or piece_id < 0 or piece_id >= vocab_size:
+                raise ValueError(
+                    f"special token '{token}' missing or out of range in vocab (id={piece_id}, vocab={vocab_size})"
+                )
+
+            encoded = self._sp.EncodeAsIds(token)
+            if len(encoded) != 1 or encoded[0] != piece_id:
+                raise ValueError(
+                    f"special token '{token}' must encode to exactly one piece id; "
+                    f"got encoded={encoded}, piece_id={piece_id}"
+                )
+
+            decoded = self._sp.DecodeIds([piece_id])
+            if decoded != token:
+                raise ValueError(
+                    f"special token '{token}' decode mismatch: piece id {piece_id} -> '{decoded}'"
+                )
 
 
 def load_tokenizer(model_path: str) -> SentencePieceTokenizer:

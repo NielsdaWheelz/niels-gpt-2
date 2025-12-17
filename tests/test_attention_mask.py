@@ -18,7 +18,7 @@ def device():
 @pytest.fixture
 def cfg():
     """Small test config: T=8, C=32, H=4, D=8 (even)."""
-    return ModelConfig(V=128, T=8, C=32, H=4, d_ff=128, dropout=0.1)
+    return ModelConfig(V=128, T=8, C=32, L=2, H=4, d_ff=128, dropout=0.1, rope_theta=10000.0)
 
 
 def test_attention_shape_dtype_device_and_rope_called(cfg, device, monkeypatch):
@@ -114,7 +114,7 @@ def test_attention_short_sequence(device):
     sequences shorter than cfg.T without errors.
     """
     # Large config.T but short input sequence
-    cfg = ModelConfig(V=256, T=256, C=256, H=4, d_ff=1024, dropout=0.1)
+    cfg = ModelConfig(V=256, T=256, C=256, L=4, H=4, d_ff=1024, dropout=0.1, rope_theta=10000.0)
     attn = CausalSelfAttention(cfg).to(device)
     attn.eval()
 

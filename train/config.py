@@ -23,6 +23,9 @@ class PretrainJobConfig:
     special_token_ids: dict[str, int]
     stop_token_id: int
     banned_token_ids: list[int]
+    run_id: str
+    resolved_settings_path: Path | None
+    tokenizer_sha256: str | None
 
 
 @dataclass
@@ -42,6 +45,9 @@ class SFTJobConfig:
     special_token_ids: dict[str, int]
     stop_token_id: int
     banned_token_ids: list[int]
+    run_id: str
+    resolved_settings_path: Path | None
+    tokenizer_sha256: str | None
 
 
 @dataclass
@@ -77,6 +83,9 @@ def _build_pretrain_job(resolved: ResolvedSettings) -> PretrainJobConfig:
         special_token_ids=resolved.special_token_ids,
         stop_token_id=resolved.stop_token_id,
         banned_token_ids=resolved.banned_token_ids,
+        run_id=resolved.run_id,
+        resolved_settings_path=resolved.resolved_path,
+        tokenizer_sha256=resolved.tokenizer_sha256,
     )
 
 
@@ -100,19 +109,28 @@ def _build_sft_job(resolved: ResolvedSettings) -> SFTJobConfig:
         special_token_ids=resolved.special_token_ids,
         stop_token_id=resolved.stop_token_id,
         banned_token_ids=resolved.banned_token_ids,
+        run_id=resolved.run_id,
+        resolved_settings_path=resolved.resolved_path,
+        tokenizer_sha256=resolved.tokenizer_sha256,
     )
 
 
 # ----------------------------- loaders ----------------------------- #
 
 
-def load_pretrain_job_config(cfg: str | dict[str, Any]) -> PretrainJobConfig:
-    resolved = resolve_settings(phase="pretrain", overrides_path=cfg)
+def load_pretrain_job_config(
+    cfg: str | dict[str, Any], *, run_id: str | None = None, write_resolved: bool = True
+) -> PretrainJobConfig:
+    resolved = resolve_settings(
+        phase="pretrain", overrides_path=cfg, run_id=run_id, write_resolved=write_resolved
+    )
     return _build_pretrain_job(resolved)
 
 
-def load_sft_job_config(cfg: str | dict[str, Any]) -> SFTJobConfig:
-    resolved = resolve_settings(phase="sft", overrides_path=cfg)
+def load_sft_job_config(
+    cfg: str | dict[str, Any], *, run_id: str | None = None, write_resolved: bool = True
+) -> SFTJobConfig:
+    resolved = resolve_settings(phase="sft", overrides_path=cfg, run_id=run_id, write_resolved=write_resolved)
     return _build_sft_job(resolved)
 
 

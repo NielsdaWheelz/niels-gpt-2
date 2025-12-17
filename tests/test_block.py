@@ -20,7 +20,7 @@ def get_device() -> str:
 
 
 def tiny_cfg() -> ModelConfig:
-    return ModelConfig(V=128, T=32, C=64, L=2, H=4, d_ff=256, dropout=0.1)
+    return ModelConfig(V=128, T=32, C=64, L=2, H=4, d_ff=256, dropout=0.1, rope_theta=10000.0)
 
 
 def test_mlp_shape_and_finite_grads():
@@ -188,7 +188,7 @@ def test_rmsnorm_has_no_bias():
 
 def test_swiglu_projection_shapes():
     """SwiGLU projections should follow (C->d_ff, C->d_ff, d_ff->C) layout."""
-    cfg = ModelConfig(V=128, T=8, C=512, L=1, H=8, d_ff=1536, dropout=0.1)
+    cfg = ModelConfig(V=128, T=8, C=512, L=1, H=8, d_ff=1536, dropout=0.1, rope_theta=10000.0)
     mlp = MLP(cfg)
 
     assert mlp.fc_a.weight.shape == (cfg.d_ff, cfg.C)

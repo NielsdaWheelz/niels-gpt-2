@@ -12,7 +12,6 @@ from niels_gpt.streams import (
     build_sources,
     build_wiki_stream,
 )
-from niels_gpt.config import default_p_train
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +54,7 @@ class TestBuildSources:
     def test_default_config_matches_default_p_train_keys(self):
         """Default stream config should align with default p_train keys."""
         cfg = StreamBuildConfig()
-        p_keys = set(default_p_train().keys())
+        p_keys = {"wiki", "roam", "primer"}
         assert set(cfg.enabled_sources) == p_keys
         assert set(cfg.required_sources) == p_keys
 
