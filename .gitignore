@@ -85,7 +85,6 @@ docs/_build/
 # Logs
 *.log
 
-<<<<<<< HEAD
 # ML-specific
 # Large datasets and caches
 data/
@@ -103,7 +102,6 @@ lightning_logs/
 *.hdf5
 *.pkl
 *.joblib
-=======
 # Abstra
 # Abstra is an AI-powered process automation framework.
 # Ignore directories containing user credentials, local state, and settings.
@@ -151,4 +149,5 @@ artifacts/tokenizer/*.json
 artifacts/tokenizer/*.vocab
 
 # Token caches
->>>>>>> origin/main
+
+build/

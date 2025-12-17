@@ -40,29 +40,67 @@ pytest -q
 - checkpoints land in `checkpoints/` (`latest.pt`, `best.pt`, periodic).
 - pretrained checkpoint hosted on [Hugging Face](https://huggingface.co/nnandal/niels-gpt); run `python tools/download_checkpoint.py` to fetch.
 
-### measure performance
+### benchmark: pick overnight config without guessing
 
-Install psutil for memory measurements
+**what it does:** finds the best model config + training knobs for an 8-hour run on your hardware (mps/cpu) without random OOMs or fake speed numbers.
+
+**quick start:**
 ```bash
-pip install psutil
+# run the sweep (auto-detects mps if available, else cpu)
+python tools/bench_sweep.py --device auto
+
+# view results
+cat bench/summary.md
 ```
 
-Run benchmark on MPS
+**what you get:**
+- `bench/results.jsonl`: all measured trials as JSON lines (machine-readable, for plotting later)
+- `bench/summary.md`: human summary ranked by overnight throughput
+
+The top row tells you:
+- which (T, C, L, H) to use
+- max microbatch size that fits
+- whether amp/checkpointing help or hurt
+- estimated tokens in 8 hours
+
+**how to use the winner:**
+1. take the top config from `summary.md`
+2. set your training config to match (T, C, L, H, micro_B, amp, activation_checkpointing)
+3. pick `accum_steps` to hit your target effective batch: `effective_batch = micro_B * accum_steps`
+4. compute overnight steps: `steps_8h ≈ (tokens/sec * 8 * 3600) / (micro_B * accum_steps * T)`
+5. run pretrain→sft with that config
+
+**what it measures (per config):**
+- can it run at all? (B=1 success)
+- how big a microbatch fits? (binary search for max_B)
+- how fast is it? (tokens/sec at best batch size)
+- does amp really run in fp16? (dtype summary)
+- does checkpointing change the fit envelope? (max_B increases when checkpointing on)
+
+**safety features:**
+- each trial runs in a fresh subprocess with timeout (default 20s)
+- OOM detection: catches allocation errors and moves on
+- MPS sync: timing uses `torch.mps.synchronize()` to avoid async lies
+- synthetic workload: no dataset/IO/tokenization noise, just model+training loop
+
+**customizing the grid:**
 ```bash
-python tools/benchmark_amp_checkpointing.py --device mps --steps 50 --B 16 --T 128
+# smaller timeout for quick sweep
+python tools/bench_sweep.py --device auto --timeout_s 15 --max_micro_B 64
+
+# custom grid (JSON file with list of configs)
+python tools/bench_sweep.py --device auto --grid my_grid.json
 ```
 
-Expected output (sample run on MacBook Air M4):
-```
-Configuration                              Tokens/sec    ms/step    Memory MB
---------------------------------------------------------------------------------
-Baseline (fp32)                                X,XXX        XX.X        XXX.X
-AMP fp16 only                                 ~1.3X       ~0.77X        ~same
-Checkpointing only (fp32)                     ~0.82X      ~1.22X        ~lower
-AMP fp16 + Checkpointing                      ~1.0X       ~1.0X         ~lowest
+**smoke tests:**
+```bash
+pytest -q tests/test_bench_trial_smoke.py tests/test_bench_sweep_smoke.py
 ```
 
-The benchmark script verifies actual dtypes used in forward pass after warmup.
+**what not to do:**
+- don't trust max_B as "best speed" — often max_B//2 is faster
+- don't shrink model too far for speed — you'll get a fast dumb model
+- don't ignore the 90% threshold — configs within 90% of best throughput but with more params are often better
 
 ### train (pr-06 runner + pr-07 amp/checkpointing)
 Prereqs:
