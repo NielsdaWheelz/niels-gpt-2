@@ -384,6 +384,10 @@ def generate_ids_cached(
     eot_token_id: int,
     temperature: float = 0.9,
     top_k: int | None = 50,
+    top_p: float | None = None,
+    repetition_penalty: float | None = None,
+    banned_token_ids: list[int] | None = None,
+    generator: torch.Generator | None = None,
     trace_layer: int | None = None,
 ) -> dict:
     """
@@ -396,6 +400,10 @@ def generate_ids_cached(
         eot_token_id: Token ID that ends generation.
         temperature: Sampling temperature (0 = greedy).
         top_k: Top-k filtering (None = no filtering).
+        top_p: Top-p (nucleus) filtering (None = no filtering).
+        repetition_penalty: Penalty for repeating tokens (None or 1.0 = no penalty).
+        banned_token_ids: Token IDs to ban from generation.
+        generator: Random generator for reproducibility (CPU generator).
         trace_layer: Optional layer index to trace attention.
 
     Returns:
@@ -439,8 +447,9 @@ def generate_ids_cached(
     ids_list = list(prompt_ids)
     steps = []
 
-    # CPU generator for sampling
-    generator = torch.Generator(device="cpu")
+    # Use provided generator or create a CPU generator
+    if generator is None:
+        generator = torch.Generator(device="cpu")
 
     # Decode loop
     for _ in range(max_new_tokens):
@@ -459,12 +468,24 @@ def generate_ids_cached(
         )
 
         # Sample next token
-        logits_1d = logits[0, 0]  # (V,)
+        logits_1d = logits[0, 0].clone()  # (V,)
+
+        # Apply banned tokens
+        if banned_token_ids:
+            logits_1d[banned_token_ids] = float("-inf")
+
+        # Apply repetition penalty
+        if repetition_penalty and repetition_penalty != 1.0:
+            unique_tokens = set(ids_list)
+            for tok_id in unique_tokens:
+                if 0 <= tok_id < logits_1d.shape[0]:
+                    logits_1d[tok_id] = logits_1d[tok_id] / repetition_penalty
+
         next_token = sample_next_token(
             logits_1d,
             temperature=temperature,
             top_k=top_k,
-            top_p=None,
+            top_p=top_p,
             generator=generator,
         )
 

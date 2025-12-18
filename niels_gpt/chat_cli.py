@@ -11,7 +11,7 @@ from niels_gpt.chat_format import extract_assistant_reply, format_chat
 from niels_gpt.checkpoint import load_checkpoint
 from niels_gpt.config import ModelConfig
 from niels_gpt.device import get_device
-from niels_gpt.generate import generate_text
+from niels_gpt.generate import generate_ids_cached, generate_text
 from niels_gpt.model.gpt import GPT
 from niels_gpt.settings import default_settings
 from niels_gpt.tokenizer import get_default_tokenizer
@@ -56,6 +56,11 @@ def main():
         type=str,
         default=None,
         help="Read system message from file (default: configs/system_surly.txt if present)",
+    )
+    parser.add_argument(
+        "--no-kv-cache",
+        action="store_true",
+        help="Disable KV-cache and use full forward pass per token (slower, for debugging)",
     )
 
     args = parser.parse_args()
@@ -135,19 +140,36 @@ def main():
             prompt = format_chat(messages)
 
             # Generate response
-            generated_text = generate_text(
-                model,
-                prompt,
-                cfg=cfg,
-                generation=generation_cfg,
-                stop_token_id=stop_id,
-                banned_token_ids=banned_ids,
-                device=device,
-                generator=generator,
-            )
-
-            # Extract assistant reply
-            reply = extract_assistant_reply(generated_text)
+            if args.no_kv_cache:
+                # Use uncached generation (full forward pass per token)
+                generated_text = generate_text(
+                    model,
+                    prompt,
+                    cfg=cfg,
+                    generation=generation_cfg,
+                    stop_token_id=stop_id,
+                    banned_token_ids=banned_ids,
+                    device=device,
+                    generator=generator,
+                )
+                reply = extract_assistant_reply(generated_text)
+            else:
+                # Use KV-cache generation (default, faster)
+                prompt_ids = tok.encode(prompt)
+                result = generate_ids_cached(
+                    model,
+                    prompt_ids,
+                    max_new_tokens=generation_cfg.max_new_tokens,
+                    eot_token_id=stop_id,
+                    temperature=generation_cfg.temperature,
+                    top_k=generation_cfg.top_k,
+                    top_p=generation_cfg.top_p,
+                    repetition_penalty=generation_cfg.repetition_penalty,
+                    banned_token_ids=banned_ids,
+                    generator=generator,
+                )
+                generated_text = tok.decode(result["ids"])
+                reply = extract_assistant_reply(generated_text)
 
             # Print reply
             print(reply)

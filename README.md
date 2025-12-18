@@ -260,9 +260,10 @@ python -m niels_gpt.chat_cli --ckpt checkpoints/best.pt \
   --top-k 50 \
   --seed 42 \
   [--system "text"] \
-  [--system-file path/to/system.txt]
+  [--system-file path/to/system.txt] \
+  [--no-kv-cache]
 ```
-`/exit` to quit.
+`/exit` to quit. KV-cache generation is enabled by default; add `--no-kv-cache` for debugging with full forward passes.
 
 5) Generate primer dialogues:
 ```bash
@@ -293,14 +294,18 @@ Cache expectations recap:
 ```bash
 python -m niels_gpt.chat_cli --ckpt checkpoints/latest.pt \
   [--max-new-tokens 256 --temperature 0.9 --top-k 50 --seed 42] \
-  [--system "..." | --system-file configs/system_surly.txt]
+  [--system "..." | --system-file configs/system_surly.txt] \
+  [--no-kv-cache]
 ```
-uses mps if available, otherwise cpu. stop sequences prevent tag leakage; default system prompt is loaded from `configs/system_surly.txt` if present.
+uses mps if available, otherwise cpu. **KV-cache generation is enabled by default** for faster inference. Generation stops on `<|eot|>` token only (no substring scanning). Default system prompt is loaded from `configs/system_surly.txt` if present.
+
+**flags:**
+- `--no-kv-cache`: disable KV-cache and use full forward pass per token (slower, for debugging)
 
 greedy (diagnostic):
 `python -m niels_gpt.chat_cli --ckpt checkpoints/best.pt --temperature 0 --top-k 0 --seed 42`
 
-less random:`
+less random:
 `python -m niels_gpt.chat_cli --ckpt checkpoints/best.pt --temperature 0.7 --top-k 20 --seed 42`
 
 ### generate primer dialogues (optional)
@@ -344,7 +349,7 @@ pytest -q
 - pipeline: `python -m train.run --phase pipeline --config configs/pipeline.json`
 - resume: add `--resume checkpoints/latest.pt` (per-phase)
 - pick device explicitly: add `--device cpu|mps|cuda`
-- chat: `python -m niels_gpt.chat_cli --ckpt checkpoints/latest.pt --max-new-tokens 256 --temperature 0.9 --top-k 50 --seed 42`
+- chat: `python -m niels_gpt.chat_cli --ckpt checkpoints/latest.pt --max-new-tokens 256 --temperature 0.9 --top-k 50 --seed 42` (uses KV-cache by default; add `--no-kv-cache` for debugging)
 - tokenizer (representative mix): `python scripts/train_tokenizer.py --input_glob "data/.roam-data/**/*.md" --input_glob "data/primer.txt" --include_wikitext --fineweb_bytes 20000000 --out_dir artifacts/tokenizer/v2 --vocab_size 16000 --seed 42`
 - tokenizer report: `python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/v2/spm.model --wikitext --fineweb-bytes 20000000`
 - fineweb sample to local file: `python tools/sample_fineweb.py --out data/fineweb_sample_20mb.txt --bytes 20000000`
@@ -418,7 +423,7 @@ flowchart TD
 - `generate_ids(model, prompt_ids, *, max_new_tokens, T, temperature, top_k, top_p, repetition_penalty, eot_id, banned_token_ids, device, generator)`: autoregressive sampling with explicit hyperparams; stops when `eot_id` is produced; uses CPU generator for deterministic sampling across devices.
 - `generate_text(model, prompt_text, *, cfg, generation: GenerationSettings, stop_token_id, banned_token_ids, device, generator)`: convenience wrapper around encode/generate_ids/decode driven by resolved generation settings.
 - **KV-cache inference** (`niels_gpt.infer.kv_cache`): efficient autoregressive generation using cached key-value pairs to avoid recomputing attention for previous tokens.
-  - `generate_ids_cached(model, prompt_ids, *, max_new_tokens, eot_token_id, temperature, top_k, trace_layer)`: KV-cache generation with sampling and optional attention tracing. Returns dict with "ids" (including eot if generated) and "steps" (per-token info with optional attention traces).
+  - `generate_ids_cached(model, prompt_ids, *, max_new_tokens, eot_token_id, temperature, top_k, top_p, repetition_penalty, banned_token_ids, generator, trace_layer)`: KV-cache generation with sampling and optional attention tracing. Returns dict with "ids" (including eot if generated) and "steps" (per-token info with optional attention traces). Supports all sampling parameters from uncached generation.
   - `generate_ids_greedy_cached(model, prompt_ids, *, max_new_tokens, eot_token_id)`: greedy (argmax) decoding with KV-cache. Returns list of token IDs including eot if generated.
   - `generate_ids_greedy_full(model, prompt_ids, *, max_new_tokens, eot_token_id)`: baseline greedy decoding without cache (for testing equivalence). No cropping - uses full sequence for exact equivalence. Returns list of token IDs including eot if generated.
   - `prefill(model, prompt_ids, cache, *, trace_layer, return_attn_row)`: process full prompt and fill KV cache in one forward pass.
@@ -427,7 +432,7 @@ flowchart TD
   - **EOT behavior**: all generation functions include the eot token in the returned ids list (better for debugging/reproducibility). Client code (like chat CLI) should strip eot when rendering text.
 
 ### chat CLI (`niels_gpt.chat_cli`)
-- loads checkpoint, rebuilds model, seeds CPU generator, builds chat prompt with system/user turns, calls `generate_text` with stop sequences to avoid emitting role tags, extracts assistant reply, loops.
+- loads checkpoint, rebuilds model, seeds CPU generator, builds chat prompt with system/user turns, calls KV-cache generation by default (falls back to `generate_text` with `--no-kv-cache`), extracts assistant reply, loops. Generation stops on `<|eot|>` token id only (no substring scanning).
 
 ### learning rate (`niels_gpt.lr_schedule.lr_at_step`)
 - linear warmup to `base_lr`, then cosine decay to `min_lr` over the remaining steps.
