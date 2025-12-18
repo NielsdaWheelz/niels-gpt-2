@@ -10,7 +10,7 @@ import torch
 
 from niels_gpt.cache.build_cache import build_sft_cache
 from niels_gpt.cache.meta import read_meta
-from niels_gpt.chat_template import format_chat
+from niels_gpt.data.primer_sft import render_chat_sft
 from niels_gpt.tokenizer import DEFAULT_TOKENIZER_PATH, load_tokenizer
 
 
@@ -26,18 +26,20 @@ def _expected_splits(num_examples: int, val_frac: float, seed: int) -> tuple[set
     return train_indices, val_indices
 
 
-def _load_sequences(tokens_path: Path, idx_path: Path) -> list[list[int]]:
+def _load_sequences(tokens_path: Path, labels_path: Path, idx_path: Path) -> list[tuple[list[int], list[int]]]:
     tokens = np.fromfile(tokens_path, dtype=np.uint16)
+    labels = np.fromfile(labels_path, dtype=np.int32)
     offsets = np.load(idx_path)
     assert offsets.dtype == np.int64
     assert offsets.tolist() == sorted(offsets.tolist())
     if len(offsets):
         assert len(tokens) >= offsets[-1]
+        assert len(labels) == len(tokens)
 
-    sequences: list[list[int]] = []
+    sequences: list[tuple[list[int], list[int]]] = []
     for i, start in enumerate(offsets.tolist()):
         end = offsets[i + 1] if i + 1 < len(offsets) else len(tokens)
-        sequences.append(tokens[start:end].tolist())
+        sequences.append((tokens[start:end].tolist(), labels[start:end].tolist()))
     return sequences
 
 
@@ -84,19 +86,24 @@ def test_sft_cache_roundtrip():
         assert meta["train_examples"] == len(train_indices)
         assert meta["val_examples"] == len(val_indices)
 
-        expected_tokens = [format_chat(tok, ex) for ex in examples]
+        expected_tokens_and_labels = [render_chat_sft(tok, ex, add_final_eot=True) for ex in examples]
 
         # Train split
         train_sequences = _load_sequences(
-            out_dir / "train_tokens.bin", out_dir / "train_idx.npy"
+            out_dir / "train_input_ids.bin", out_dir / "train_labels.bin", out_dir / "train_idx.npy"
         )
-        expected_train = {tuple(expected_tokens[i]) for i in train_indices}
-        assert {tuple(seq) for seq in train_sequences} == expected_train
+        expected_train = {tuple(expected_tokens_and_labels[i][0]) for i in train_indices}
+        assert {tuple(seq[0]) for seq in train_sequences} == expected_train
+        # verify labels are stored and aligned
+        expected_train_labels = {tuple(expected_tokens_and_labels[i][1]) for i in train_indices}
+        assert {tuple(seq[1]) for seq in train_sequences} == expected_train_labels
 
         # Val split
         val_sequences = _load_sequences(
-            out_dir / "val_tokens.bin", out_dir / "val_idx.npy"
+            out_dir / "val_input_ids.bin", out_dir / "val_labels.bin", out_dir / "val_idx.npy"
         )
-        expected_val = {tuple(expected_tokens[i]) for i in val_indices}
-        assert {tuple(seq) for seq in val_sequences} == expected_val
+        expected_val = {tuple(expected_tokens_and_labels[i][0]) for i in val_indices}
+        assert {tuple(seq[0]) for seq in val_sequences} == expected_val
+        expected_val_labels = {tuple(expected_tokens_and_labels[i][1]) for i in val_indices}
+        assert {tuple(seq[1]) for seq in val_sequences} == expected_val_labels
 

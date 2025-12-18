@@ -4,7 +4,7 @@
     4,
     5
   ],
-  "generated_at_utc": "2025-12-18T04:28:42.439165+00:00",
+  "generated_at_utc": "2025-12-18T04:58:01.384583+00:00",
   "model_cfg": {
     "C": 384,
     "H": 6,
@@ -112,8 +112,9 @@
         "wikitext": 0.2
       },
       "mix_sft": {
-        "dolly15k": 0.33,
-        "oasst1": 0.67
+        "dolly15k": 0.2,
+        "oasst1": 0.7,
+        "primer": 0.1
       },
       "oasst1": {
         "dataset_id": "OpenAssistant/oasst1",

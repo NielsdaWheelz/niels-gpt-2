@@ -13,6 +13,7 @@ from datasets import load_dataset
 from niels_gpt.data.dolly import iter_dolly_sft
 from niels_gpt.data.fineweb_edu import iter_fineweb_edu
 from niels_gpt.data.oasst1 import iter_oasst1_sft
+from niels_gpt.data.primer_sft import build_primer_sft_cache
 from niels_gpt.data.roam import list_roam_paths, load_texts
 from niels_gpt.data.wikitext import iter_wikitext
 from niels_gpt.paths import REPO_ROOT, ROAM_DIR
@@ -365,7 +366,7 @@ def build_all(
 
 def main():
     parser = argparse.ArgumentParser(description="Build token caches for pretrain and SFT datasets")
-    parser.add_argument("command", choices=["build-all"], help="Command to run")
+    parser.add_argument("command", choices=["build-all", "build-sft-primer"], help="Command to run")
     parser.add_argument("--cache-dir", type=str, default="cache", help="Cache directory (default: cache)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     parser.add_argument(
@@ -392,6 +393,30 @@ def main():
         default=None,
         help="Roam data directory (default: .roam-data)",
     )
+    parser.add_argument(
+        "--primer-jsonl",
+        type=str,
+        default=str(REPO_ROOT / "data" / "primer.jsonl"),
+        help="Path to primer.jsonl file (default: data/primer.jsonl)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=str,
+        default=None,
+        help="Output directory for SFT cache (default: cache/sft for build-sft-primer)",
+    )
+    parser.add_argument(
+        "--val-frac",
+        type=float,
+        default=DEFAULT_SFT_VAL_FRAC,
+        help=f"Validation fraction (default: {DEFAULT_SFT_VAL_FRAC})",
+    )
+    parser.add_argument(
+        "--t-max",
+        type=int,
+        default=1024,
+        help="Maximum sequence length for truncation (default: 1024)",
+    )
 
     args = parser.parse_args()
     if args.command == "build-all":
@@ -402,6 +427,35 @@ def main():
             fineweb_val_tokens=args.fineweb_val_tokens,
             shard_bytes=args.shard_bytes,
             roam_dir=args.roam_dir,
+        )
+    elif args.command == "build-sft-primer":
+        cache_path = Path(args.cache_dir)
+        cache_path.mkdir(parents=True, exist_ok=True)
+
+        tokenizer = _ensure_tokenizer(cache_path)
+
+        out_dir = args.out_dir or str(cache_path / "sft" / "primer")
+
+        primer_path = Path(args.primer_jsonl)
+        if not primer_path.exists():
+            print(f"error: primer.jsonl not found at {primer_path}")
+            print("create a primer.jsonl file with chat messages in the specified format")
+            sys.exit(1)
+
+        print(f"\n=== building primer SFT cache ===")
+        print(f"source: {primer_path}")
+        print(f"output: {out_dir}")
+        print(f"val_frac: {args.val_frac}")
+        print(f"seed: {args.seed}")
+        print(f"t_max: {args.t_max}")
+
+        build_primer_sft_cache(
+            str(primer_path),
+            out_dir,
+            tokenizer=tokenizer,
+            val_frac=args.val_frac,
+            seed=args.seed,
+            t_max=args.t_max,
         )
 
 

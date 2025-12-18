@@ -29,9 +29,13 @@ pytest -q
 
 ### data you need
 - wiki: required. fetched on first train via `datasets.load_dataset("wikitext", "wikitext-103-raw-v1")`.
-- primer: `data/primer.txt` is included; optional extra `data/primer.generated.txt` (see below).
+- primer (pretrain): `data/primer.txt` is included; optional extra `data/primer.generated.txt` (see below).
+- primer (SFT): `data/primer.jsonl` with chat messages in JSONL format (see PR-03 spec).
 - roam (optional): drop markdown notes under `data/.roam-data/`; they are split deterministically; skipped if missing.
-- caches: stream binaries are written to `data/cache/streams/`. delete to rebuild; note that wiki always re-reads via `datasets`, so stay online or warm the HF cache.
+- caches:
+  - pretrain binaries written to `data/cache/streams/`. delete to rebuild.
+  - SFT binaries written to `data/cache/sft/{dolly15k,oasst1,primer}/`. delete to rebuild.
+  - note: wiki always re-reads via `datasets`, so stay online or warm the HF cache.
 
 ### configs + checkpoints
 - `configs/smoke.json`: 1k steps sanity run.
@@ -104,6 +108,7 @@ pytest -q tests/test_bench_trial_smoke.py tests/test_bench_sweep_smoke.py
 
 **rebuild caches**
 ```bash
+# Build all pretrain and SFT caches (dolly, oasst1)
 python -m niels_gpt.cache.cli build-all \
   --cache-dir data/cache \
   --seed 42 \
@@ -111,6 +116,14 @@ python -m niels_gpt.cache.cli build-all \
   --fineweb-val-tokens 5000000 \
   --shard-bytes 134217728 \
   --roam-dir data/.roam-data
+
+# Build primer SFT cache separately (PR-03)
+python -m niels_gpt.cache.cli build-sft-primer \
+  --primer-jsonl data/primer.jsonl \
+  --out-dir data/cache/sft \
+  --seed 42 \
+  --val-frac 0.1 \
+  --t-max 1024
 ```
 
 **full pipeline smoke (pretrain → sft → generation)**
@@ -203,6 +216,7 @@ pip install -e ".[dev]"
 
 1) Build caches (pretrain + SFT):
 ```bash
+# Build all pretrain and default SFT sources (dolly, oasst1)
 python -m niels_gpt.cache.cli build-all \
   --cache-dir data/cache \
   --seed 42 \
@@ -210,8 +224,16 @@ python -m niels_gpt.cache.cli build-all \
   --fineweb-val-tokens 5000000 \
   --shard-bytes 134217728 \
   --roam-dir data/.roam-data
+
+# Build primer SFT cache (PR-03)
+python -m niels_gpt.cache.cli build-sft-primer \
+  --primer-jsonl data/primer.jsonl \
+  --out-dir data/cache/sft \
+  --seed 42 \
+  --val-frac 0.1 \
+  --t-max 1024
 ```
-Notes: downloads HF datasets (needs network); writes streams under `cache/streams` and sft under `cache/sft`. `--roam-dir` optional; set to a real directory to include roam notes.
+Notes: downloads HF datasets (needs network); writes streams under `cache/streams` and sft under `cache/sft`. `--roam-dir` optional; set to a real directory to include roam notes. Primer SFT requires a valid `primer.jsonl` file with chat messages.
 
 2) Train tokenizer (if rebuilding):
 ```bash
@@ -262,7 +284,8 @@ python -m scripts.smoke_loaders
 
 Cache expectations recap:
 - Streams: `data/cache/streams/{wiki,roam,primer}_{train,val}.bin + .meta.json`
-- SFT: `data/cache/sft/{dolly,oasst1}_{train,val}.bin + .meta.json + .idx.npy` (set `allow_missing_idx=true` in sft config only if you intentionally want trivial idx synthesis).
+- SFT: `data/cache/sft/{dolly15k,oasst1,primer}/{train,val}_input_ids.bin + {train,val}_labels.bin + {train,val}_idx.npy + meta.json` (set `allow_missing_idx=true` in sft config only if you intentionally want trivial idx synthesis).
+- Default SFT mix (as of PR-03): `{"primer": 0.10, "oasst1": 0.70, "dolly15k": 0.20}`
 
 ### chat / inference
 ```bash
@@ -283,6 +306,29 @@ less random:`
 python tools/generate_primer.py --seed 0 --n-per-category 30 --shuffle
 ```
 writes `data/primer.generated.txt` using `data/public_facts.json` + `tools/primer_combinators.py`.
+
+### primer.jsonl format (PR-03)
+Primer SFT dataset uses a JSONL format (one JSON object per line):
+```json
+{"messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"What is 2+2?"},{"role":"assistant","content":"2+2 equals 4."}]}
+{"messages":[{"role":"user","content":"Tell me a joke."},{"role":"assistant","content":"Why did the chicken cross the road? To get to the other side!"}]}
+```
+
+**Format rules:**
+- Each line is a separate training example
+- `messages` must be a non-empty list
+- Each message must have exactly `role` and `content` keys
+- Valid roles: `system`, `user`, `assistant`
+- `content` must be a string (may be empty but discouraged)
+- File must be UTF-8 encoded
+- At least one `assistant` message required per example
+- Multiple user/assistant turns are supported
+
+**Rendering:**
+- Template: `<|sys|> {content} <|eot|> <|usr|> {content} <|eot|> <|asst|> {content} <|eot|>`
+- Loss masking: Only assistant content and assistant `<|eot|>` are trained (everything else is -100)
+- Truncation: Examples exceeding `T_max` are truncated from the left (keeping recent turns)
+- Examples shorter than 2 tokens after truncation are dropped
 
 ### tests
 ```bash

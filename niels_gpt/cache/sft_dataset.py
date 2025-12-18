@@ -12,14 +12,15 @@ class SFTExampleDataset:
     """
     Memory-mapped SFT dataset.
 
-    Reads concatenated tokens and example offsets.
-    Returns (x, y, y_masked) where y_masked has -100 for non-assistant tokens.
+    Reads concatenated input_ids, labels, and example offsets.
+    Returns (x, y, y_masked) where y_masked comes from cached labels when available.
     """
 
     def __init__(
         self,
         tokens_path: str,
         idx_path: str,
+        labels_path: str | None = None,
         *,
         T: int,
         device: str,
@@ -32,16 +33,18 @@ class SFTExampleDataset:
         Initialize SFT dataset.
 
         Args:
-            tokens_path: Path to tokens.bin (uint16 concatenated tokens)
+            tokens_path: Path to *_input_ids.bin (uint16 concatenated tokens)
             idx_path: Path to idx.npy (int64 offsets array)
+            labels_path: Optional path to *_labels.bin (int32 masked targets aligned to tokens)
             T: Sequence length (context window size)
             device: Device to place tensors on
             eot_id: End-of-turn token ID
-            asst_id: Assistant role token ID (needed for masking)
-            assistant_only_loss: If True, only assistant spans contribute to loss
-        include_eot_in_loss: If True, include the EOT token in assistant loss
+            asst_id: Assistant role token ID (needed for masking fallback)
+            assistant_only_loss: If True, only assistant spans contribute to loss when labels are absent
+            include_eot_in_loss: If True, include the EOT token in assistant loss when labels are absent
         """
         self.tokens_path = Path(tokens_path)
+        self.labels_path = Path(labels_path) if labels_path is not None else None
         self.idx_path = Path(idx_path)
         self.T = T
         self.device = device
@@ -59,6 +62,13 @@ class SFTExampleDataset:
             raise ValueError("asst_id is required to compute assistant masking")
 
         self.tokens = np.memmap(self.tokens_path, dtype=np.uint16, mode="r")
+        self.labels = (
+            np.memmap(self.labels_path, dtype=np.int32, mode="r") if self.labels_path and self.labels_path.exists() else None
+        )
+        if self.labels is not None and len(self.labels) != len(self.tokens):
+            raise ValueError(
+                f"labels length ({len(self.labels)}) must match tokens length ({len(self.tokens)})"
+            )
         self.offsets = np.load(self.idx_path)
         self.num_examples = len(self.offsets)
         if self.num_examples == 0:
@@ -84,28 +94,46 @@ class SFTExampleDataset:
             )
 
             example_tokens = self.tokens[start:end]
+            example_labels = self.labels[start:end] if self.labels is not None else None
 
             if len(example_tokens) >= self.T + 1:
-                seq = torch.from_numpy(
-                    np.asarray(example_tokens[: self.T + 1], dtype=np.int64)
+                seq_tokens_np = np.asarray(example_tokens[: self.T + 1], dtype=np.int64)
+                seq_labels_np = (
+                    np.asarray(example_labels[: self.T + 1], dtype=np.int64)
+                    if example_labels is not None
+                    else None
                 )
             else:
-                seq = torch.full((self.T + 1,), self.eot_id, dtype=torch.int64)
-                seq[: len(example_tokens)] = torch.from_numpy(
-                    np.asarray(example_tokens, dtype=np.int64)
-                )
+                seq_tokens_np = np.full((self.T + 1,), self.eot_id, dtype=np.int64)
+                seq_tokens_np[: len(example_tokens)] = np.asarray(example_tokens, dtype=np.int64)
+                if example_labels is not None:
+                    seq_labels_np = np.full((self.T + 1,), -100, dtype=np.int64)
+                    seq_labels_np[: len(example_labels)] = np.asarray(example_labels, dtype=np.int64)
+                else:
+                    seq_labels_np = None
 
-            seq = seq.to(self.device)
+            seq = torch.from_numpy(seq_tokens_np).to(self.device)
             x[i] = seq[:-1]
             y[i] = seq[1:]
 
-            if self.assistant_only_loss:
-                mask = self._assistant_mask(
-                    seq, self.asst_id, self.eot_id, include_eot=self.include_eot_in_loss
+            if self.labels is not None:
+                labels_seq = (
+                    torch.from_numpy(seq_labels_np).to(self.device) if seq_labels_np is not None else None
                 )
-                y_masked[i] = torch.where(mask, y[i], torch.full_like(y[i], -100))
+                if labels_seq is None:
+                    y_masked[i] = torch.full_like(y[i], -100)
+                else:
+                    y_masked[i] = labels_seq[1:]
+                    if not self.assistant_only_loss:
+                        y_masked[i] = y[i]
             else:
-                y_masked[i] = y[i]
+                if self.assistant_only_loss:
+                    mask = self._assistant_mask(
+                        seq, self.asst_id, self.eot_id, include_eot=self.include_eot_in_loss
+                    )
+                    y_masked[i] = torch.where(mask, y[i], torch.full_like(y[i], -100))
+                else:
+                    y_masked[i] = y[i]
 
         return x, y, y_masked
 

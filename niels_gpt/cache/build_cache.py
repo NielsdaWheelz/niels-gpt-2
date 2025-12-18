@@ -9,7 +9,7 @@ from typing import Literal, TypedDict
 import numpy as np
 import torch
 
-from niels_gpt.chat_template import format_chat
+from niels_gpt.data.primer_sft import render_chat_sft
 from niels_gpt.special_tokens import SPECIAL_TOKENS, assert_no_special_collision
 
 from .formats import TOKEN_BYTES, TOKEN_DTYPE
@@ -204,10 +204,10 @@ def build_sft_cache(
 ) -> None:
     """
     writes:
-      out_dir/train_tokens.bin, out_dir/train_idx.npy
-      out_dir/val_tokens.bin,   out_dir/val_idx.npy
+      out_dir/{train,val}_input_ids.bin (uint16)
+      out_dir/{train,val}_labels.bin    (int32, masked with -100)
+      out_dir/{train,val}_idx.npy       (int64 offsets into *_input_ids.bin / *_labels.bin)
       out_dir/meta.json
-    where idx is offsets into tokens.bin (int64), offsets-only (length inferred).
     deterministic given seed + identical input stream order.
     """
     out_path = Path(out_dir)
@@ -229,51 +229,34 @@ def build_sft_cache(
     train_pos = 0
     val_pos = 0
 
-    train_tokens_path = out_path / "train_tokens.bin"
-    val_tokens_path = out_path / "val_tokens.bin"
+    train_tokens_path = out_path / "train_input_ids.bin"
+    val_tokens_path = out_path / "val_input_ids.bin"
+    train_labels_path = out_path / "train_labels.bin"
+    val_labels_path = out_path / "val_labels.bin"
 
-    specials_set = set(tokenizer.special_token_ids().values())
-    special_strings = tuple(getattr(tokenizer, "special_tokens", None) or SPECIAL_TOKENS)
-    dataset_label = source_name or "unknown"
-
-    with open(train_tokens_path, "wb") as train_f, open(val_tokens_path, "wb") as val_f:
+    with open(train_tokens_path, "wb") as train_f, open(val_tokens_path, "wb") as val_f, open(
+        train_labels_path, "wb"
+    ) as train_lbl_f, open(val_labels_path, "wb") as val_lbl_f:
         for idx, messages in enumerate(all_examples):
-            seq_chunks: list[int] = []
-
-            for msg_idx, msg in enumerate(messages):
-                role = msg["role"]
-                content = msg["content"]
-                assert_no_special_collision(
-                    content,
-                    dataset=dataset_label,
-                    doc_index=idx,
-                    field=f"{role}[{msg_idx}]",
-                    specials=special_strings,
-                )
-                content_ids = tokenizer.encode(content)
-                if any(t in specials_set for t in content_ids):
-                    raise ValueError(
-                        "encoded content contains special token id: "
-                        f"dataset={dataset_label}, doc_index={idx}, field={role}[{msg_idx}]"
-                    )
-
-                seq_chunks.extend(format_chat(tokenizer, [msg]))
-
-            if not seq_chunks:
+            try:
+                input_ids, labels = render_chat_sft(tokenizer, messages, add_final_eot=True)
+            except ValueError:
                 dropped_malformed += 1
                 continue
 
-            seq = seq_chunks
-            arr = np.asarray(seq, dtype="<u2")
+            arr_ids = np.asarray(input_ids, dtype="<u2")
+            arr_labels = np.asarray(labels, dtype="<i4")
 
             if idx in val_indices:
                 val_offsets.append(val_pos)
-                val_f.write(arr.tobytes())
-                val_pos += len(seq)
+                val_f.write(arr_ids.tobytes())
+                val_lbl_f.write(arr_labels.tobytes())
+                val_pos += len(input_ids)
             else:
                 train_offsets.append(train_pos)
-                train_f.write(arr.tobytes())
-                train_pos += len(seq)
+                train_f.write(arr_ids.tobytes())
+                train_lbl_f.write(arr_labels.tobytes())
+                train_pos += len(input_ids)
 
     np.save(out_path / "train_idx.npy", np.asarray(train_offsets, dtype=np.int64))
     np.save(out_path / "val_idx.npy", np.asarray(val_offsets, dtype=np.int64))
@@ -283,6 +266,7 @@ def build_sft_cache(
         "dataset_config": None,
         "split_rule": f"torch.randperm val_frac={val_frac}",
         "token_dtype": TOKEN_DTYPE,
+        "label_dtype": "int32-le",
         "seed": seed,
         "val_frac": val_frac,
         "train_examples": len(train_offsets),

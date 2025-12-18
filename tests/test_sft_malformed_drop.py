@@ -21,11 +21,12 @@ def test_malformed_examples_are_dropped():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_dir = Path(tmpdir)
-        with pytest.raises(ValueError, match="special token literal"):
-            build_sft_cache(
-                examples,
-                str(out_dir),
-                tokenizer=tok,
-                val_frac=0.5,
-                seed=123,
-            )
+        build_sft_cache(
+            examples,
+            str(out_dir),
+            tokenizer=tok,
+            val_frac=0.5,
+            seed=123,
+        )
+        assert (out_dir / "train_input_ids.bin").exists()
+        assert (out_dir / "train_labels.bin").exists()

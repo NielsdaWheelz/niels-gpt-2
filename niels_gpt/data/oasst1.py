@@ -1,7 +1,6 @@
 from typing import Iterator, Optional
 import random
 from datasets import load_dataset
-from niels_gpt.special_tokens import assert_no_special_collision
 from .types import ChatSample, ChatMessage
 
 
@@ -91,13 +90,6 @@ def _reconstruct_threads(
             # Skip empty/whitespace-only messages
             if not text or not text.strip():
                 continue
-
-            assert_no_special_collision(
-                text,
-                dataset="oasst1",
-                doc_index=msg_id,
-                field=role,
-            )
 
             # Map oasst roles to our role vocabulary
             if role == "prompter":

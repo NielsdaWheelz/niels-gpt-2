@@ -37,13 +37,14 @@ from train.pretrain import (
 )
 
 
-def _expected_sft_paths(cache_dir: Path, source: str, split: str) -> tuple[Path, Path, Path]:
-    """Get paths for new SFT cache format: cache_dir/source/{split}_tokens.bin"""
+def _expected_sft_paths(cache_dir: Path, source: str, split: str) -> tuple[Path, Path, Path, Path]:
+    """Get paths for SFT cache format: cache_dir/source/{split}_input_ids.bin + labels + idx"""
     source_dir = cache_dir / source
-    tokens = source_dir / f"{split}_tokens.bin"
+    tokens = source_dir / f"{split}_input_ids.bin"
+    labels = source_dir / f"{split}_labels.bin"
     idx = source_dir / f"{split}_idx.npy"
     meta = source_dir / "meta.json"
-    return tokens, idx, meta
+    return tokens, labels, idx, meta
 
 
 def _load_sft_source(
@@ -57,8 +58,17 @@ def _load_sft_source(
     include_eot_in_loss: bool,
     expected_tokenizer_sha: str | None,
     expected_special_token_ids: dict[str, int] | None,
+    tokens_override: str | None = None,
+    labels_override: str | None = None,
 ) -> SFTExampleDataset:
-    tokens_path, idx_path, meta_path = _expected_sft_paths(cache_dir, source, split)
+    tokens_path, labels_path, idx_path, meta_path = _expected_sft_paths(cache_dir, source, split)
+    if tokens_override:
+        tokens_path = Path(tokens_override)
+    if labels_override:
+        labels_path = Path(labels_override)
+    legacy_tokens = tokens_path.parent / f"{split}_tokens.bin"
+    if not tokens_path.exists() and legacy_tokens.exists():
+        tokens_path = legacy_tokens
     meta = _load_meta(meta_path)
     if expected_tokenizer_sha and meta.get("tokenizer_sha256") not in {expected_tokenizer_sha}:
         raise ValueError(
@@ -85,6 +95,7 @@ def _load_sft_source(
     return SFTExampleDataset(
         str(tokens_path),
         str(idx_path),
+        str(labels_path) if labels_path.exists() else None,
         T=T,
         device=device,
         eot_id=int(eot_id),
@@ -109,21 +120,32 @@ def _load_sft_sources(
 ) -> dict[str, SFTExampleDataset]:
     missing: list[str] = []
     for src in source_names:
-        tokens, idx, meta = _expected_sft_paths(cache_dir, src, split)
+        tokens, labels, idx, meta = _expected_sft_paths(cache_dir, src, split)
+        legacy_tokens = (cache_dir / src / f"{split}_tokens.bin")
+        if not tokens.exists() and legacy_tokens.exists():
+            tokens = legacy_tokens
         if not tokens.exists():
             missing.append(str(tokens))
+        if not labels.exists():
+            missing.append(str(labels))
         if not meta.exists():
             missing.append(str(meta))
     if missing:
         raise FileNotFoundError(
             "missing SFT cache files:\n  "
             + "\n  ".join(sorted(missing))
-            + "\nexpected format: data/cache/sft/{source}/meta.json and {source}/{split}_tokens.bin + {split}_idx.npy"
+            + "\nexpected format: data/cache/sft/{source}/meta.json and "
+            + "{split}_input_ids.bin + {split}_labels.bin + {split}_idx.npy "
+            + "(legacy {split}_tokens.bin supported for input_ids only)"
         )
 
     datasets: dict[str, SFTExampleDataset] = {}
     for src in source_names:
-        tokens, idx, _ = _expected_sft_paths(cache_dir, src, split)
+        tokens, labels, idx, _ = _expected_sft_paths(cache_dir, src, split)
+        legacy_tokens = cache_dir / src / f"{split}_tokens.bin"
+        if not tokens.exists() and legacy_tokens.exists():
+            tokens = legacy_tokens
+        legacy_labels = None  # no legacy labels; will trigger recompute masking
         if not idx.exists() and not allow_missing_idx:
             raise FileNotFoundError(
                 f"missing idx file for {src}_{split}: {idx}\n"
@@ -139,6 +161,8 @@ def _load_sft_sources(
             include_eot_in_loss=include_eot_in_loss,
             expected_tokenizer_sha=expected_tokenizer_sha,
             expected_special_token_ids=expected_special_token_ids,
+            tokens_override=str(tokens),
+            labels_override=str(labels) if labels.exists() else legacy_labels,
         )
     return datasets
 

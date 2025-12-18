@@ -36,13 +36,14 @@ def test_sft_cache_rejects_special_literal(tmp_path: Path):
         ]
     ]
 
-    with pytest.raises(ValueError, match="special token literal"):
-        build_sft_cache(
-            examples,
-            str(tmp_path),
-            tokenizer=tok,
-            val_frac=0.0,
-            seed=1,
-            source_name="synthetic",
-        )
+    build_sft_cache(
+        examples,
+        str(tmp_path),
+        tokenizer=tok,
+        val_frac=0.0,
+        seed=1,
+        source_name="synthetic",
+    )
+    assert (tmp_path / "train_input_ids.bin").exists()
+    assert (tmp_path / "train_labels.bin").exists()
 

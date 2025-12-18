@@ -41,23 +41,27 @@ def _write_sft_cache(base: Path, source: str, split: str, sequences: list[list[i
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / split).mkdir(exist_ok=True)
 
-    tokens_path = source_dir / f"{split}_tokens.bin"
+    tokens_path = source_dir / f"{split}_input_ids.bin"
+    labels_path = source_dir / f"{split}_labels.bin"
     idx_path = source_dir / f"{split}_idx.npy"
     meta_path = source_dir / "meta.json"
 
     offsets: list[int] = []
     pos = 0
-    with open(tokens_path, "wb") as f:
+    with open(tokens_path, "wb") as f, open(labels_path, "wb") as lf:
         for seq in sequences:
             offsets.append(pos)
             arr = np.asarray(seq, dtype="<u2")
+            lbl = np.asarray(seq, dtype="<i4")  # unmasked targets for tests
             f.write(arr.tobytes())
+            lf.write(lbl.tobytes())
             pos += len(seq)
 
     np.save(idx_path, np.asarray(offsets, dtype=np.int64))
     tokenizer_sha = sha256_file(str(DEFAULT_TOKENIZER_PATH))
     meta = {
         "token_dtype": "uint16-le",
+        "label_dtype": "int32-le",
         "special_token_ids": special,
         "source": source,
         "split": split,
@@ -239,8 +243,9 @@ def test_sft_masking_smoke():
             _write_sft_cache(sft_dir, "dolly15k", "val", [seq], special)
 
             ds = SFTExampleDataset(
-                str(sft_dir / "dolly15k" / "train_tokens.bin"),
+                str(sft_dir / "dolly15k" / "train_input_ids.bin"),
                 str(sft_dir / "dolly15k" / "train_idx.npy"),
+                str(sft_dir / "dolly15k" / "train_labels.bin"),
                 T=len(seq) - 1,
                 device="cpu",
                 eot_id=special["eot"],

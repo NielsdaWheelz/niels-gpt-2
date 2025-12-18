@@ -201,11 +201,11 @@ def _default_pretrain_mix() -> dict[str, float]:
 
 
 def _default_sft_mix() -> dict[str, float]:
-    return {"oasst1": 0.67, "dolly15k": 0.33}
+    return {"primer": 0.10, "oasst1": 0.70, "dolly15k": 0.20}
 
 
 VALID_PRETRAIN_SOURCES = {"wikitext", "fineweb_edu", "gutenberg", "roam"}
-VALID_SFT_SOURCES = {"dolly15k", "oasst1"}
+VALID_SFT_SOURCES = {"dolly15k", "oasst1", "primer"}
 
 
 class DataSettings(BaseModel):

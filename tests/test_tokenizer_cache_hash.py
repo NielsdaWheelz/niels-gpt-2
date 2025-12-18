@@ -31,15 +31,18 @@ def _write_sft_cache(tmp: Path, name: str, tokenizer_sha: str, special: dict[str
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "train").mkdir(exist_ok=True)
 
-    tokens_path = source_dir / "train_tokens.bin"
+    tokens_path = source_dir / "train_input_ids.bin"
+    labels_path = source_dir / "train_labels.bin"
     idx_path = source_dir / "train_idx.npy"
     meta_path = source_dir / "meta.json"
     arr = np.asarray([1, 2, 3, 4], dtype="<u2")
     tokens_path.write_bytes(arr.tobytes())
+    labels_path.write_bytes(np.asarray([1, 2, 3, 4], dtype="<i4").tobytes())
     np.save(idx_path, np.asarray([0], dtype=np.int64))
     meta = {
         "tokenizer_sha256": tokenizer_sha,
         "token_dtype": "uint16-le",
+        "label_dtype": "int32-le",
         "special_token_ids": special,
         "source": name,
         "split": "train",

@@ -1,7 +1,6 @@
 from typing import Iterator, Optional
 import random
 from datasets import load_dataset
-from niels_gpt.special_tokens import assert_no_special_collision
 from .types import ChatSample, ChatMessage
 
 
@@ -45,16 +44,12 @@ def iter_dolly_sft(
         # Add system message if requested
         if include_system:
             system_text = "you are a helpful assistant."
-            assert_no_special_collision(system_text, dataset="dolly", doc_index=idx, field="system")
             messages.append(ChatMessage(role="system", content=system_text))
 
         # Build user content
         user_content = sample["instruction"]
         if sample.get("context", "").strip():
             user_content += f"\n\ncontext:\n{sample['context']}"
-
-        assert_no_special_collision(user_content, dataset="dolly", doc_index=idx, field="user")
-        assert_no_special_collision(sample["response"], dataset="dolly", doc_index=idx, field="assistant")
 
         messages.append(ChatMessage(role="user", content=user_content))
         messages.append(ChatMessage(role="assistant", content=sample["response"]))
