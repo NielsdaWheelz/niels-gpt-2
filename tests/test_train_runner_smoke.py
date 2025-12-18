@@ -13,7 +13,7 @@ from niels_gpt.cache.meta import sha256_file
 from niels_gpt.tokenizer import DEFAULT_TOKENIZER_PATH, load_tokenizer
 
 
-def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) -> None:
+def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int], special_ids: dict[str, int] | None = None) -> None:
     source_dir = base / source
     split_dir = source_dir / split
     split_dir.mkdir(parents=True, exist_ok=True)
@@ -24,7 +24,8 @@ def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) 
     with open(bin_path, "wb") as f:
         f.write(arr.tobytes())
     tokenizer_sha = sha256_file(str(DEFAULT_TOKENIZER_PATH))
-    special_ids = load_tokenizer(str(DEFAULT_TOKENIZER_PATH)).special_token_ids()
+    if special_ids is None:
+        special_ids = load_tokenizer(str(DEFAULT_TOKENIZER_PATH)).special_token_ids()
     meta = {
         "token_dtype": "uint16-le",
         "source": source,
@@ -293,15 +294,22 @@ def test_sft_masking_smoke():
                     "val_sft_source": "sft",
                     "caches": {
                         "sft_token_cache": str(sft_dir),
-                        "streams_token_cache": str(streams_dir),
+                        # wikitext val uses the pretrain cache, not streams_token_cache
+                        "pretrain_token_cache": str(streams_dir),
                     },
                 },
             }
 
-            # Provide dummy wiki cache for completeness even if unused
-            _write_stream_cache(streams_dir, "wikitext", "val", list(range(20)))
-            run_sft(cfg, device="cpu", no_auto_resume=True)
+            # Provide wikitext cache (now used for val_pretrain_loss in pr-02)
+            _write_stream_cache(streams_dir, "wikitext", "val", [i % V for i in range(20)], special_ids=special)
+            result = run_sft(cfg, device="cpu", no_auto_resume=True)
             assert (ckpt_dir / "latest.pt").exists()
+            assert result["last_val_pretrain_loss"] is not None
+            assert np.isfinite(result["last_val_pretrain_loss"])
+            assert result["last_val_sft_loss"] is not None
+            assert np.isfinite(result["last_val_sft_loss"])
+            assert result["best_val_loss"] is not None
+            assert np.isfinite(result["best_val_loss"])
         finally:
             ng_paths.CHECKPOINT_DIR = orig_ckpt
 

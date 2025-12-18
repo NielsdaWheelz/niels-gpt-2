@@ -30,7 +30,7 @@ if [ "$SKIP_TOKENIZER" = "false" ]; then
     echo "==> Step 1/4: Training tokenizer"
     if [ ! -f "artifacts/tokenizer/v2/spm.model" ]; then
         python scripts/train_tokenizer.py \
-            --input_glob ".roam-data/**/*.md" \
+            --input_glob "data/.roam-data/**/*.md" \
             --input_glob "data/primer.txt" \
             --include_wikitext \
             --fineweb_bytes 20000000 \
@@ -55,7 +55,7 @@ if [ "$SKIP_CACHE" = "false" ]; then
     echo "==> Step 2/4: Building token caches"
     python -m niels_gpt.cache.cli build-all \
         --cache-dir data/cache \
-        --roam-dir .roam-data \
+        --roam-dir data/.roam-data \
         --fineweb-train-tokens 200000000 \
         --fineweb-val-tokens 5000000 \
         --shard-bytes 134217728 \

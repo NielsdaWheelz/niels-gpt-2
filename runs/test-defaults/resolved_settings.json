@@ -4,7 +4,7 @@
     4,
     5
   ],
-  "generated_at_utc": "2025-12-18T03:56:15.413672+00:00",
+  "generated_at_utc": "2025-12-18T04:28:42.439165+00:00",
   "model_cfg": {
     "C": 384,
     "H": 6,
@@ -140,7 +140,7 @@
         "val_frac": 0.1
       },
       "val_pretrain_source": "wikitext",
-      "val_sft_source": "wikitext",
+      "val_sft_source": "sft",
       "wikitext": {
         "chunking": {
           "pack_to_T": true,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from collections import deque
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 import torch
@@ -187,6 +187,59 @@ def _load_wikitext_val(
     )
 
 
+def run_eval_tick(
+    model: torch.nn.Module,
+    *,
+    device: str,
+    train_cfg: Any,
+    eval_batches: int,
+    val_source_choice: str,
+    wikitext_val_source: PretrainSource,
+    val_mixture: SFTMixture | None,
+    ignore_index: int = -100,
+) -> tuple[float, float | None]:
+    """
+    Run a single evaluation tick.
+
+    Always evaluates pretraining loss on the wikitext validation source. If
+    val_source_choice == "sft", also evaluates SFT validation loss using the
+    provided mixture.
+    """
+    eval_B = train_cfg.micro_B_eval or train_cfg.B
+
+    eval_gen_pretrain = torch.Generator(device="cpu").manual_seed(train_cfg.seed)
+
+    def pretrain_batch_fn():
+        xs = []
+        ys = []
+        for _ in range(eval_B):
+            x_single, y_single = wikitext_val_source.sample(device=device, generator=eval_gen_pretrain)
+            xs.append(x_single)
+            ys.append(y_single)
+        return torch.stack(xs, dim=0), torch.stack(ys, dim=0)
+
+    val_pretrain_loss = evaluate_pretrain(model, batch_fn=pretrain_batch_fn, eval_batches=eval_batches)
+
+    val_sft_loss: float | None = None
+    if val_source_choice == "sft":
+        if val_mixture is None:
+            raise ValueError("val_mixture must be provided when val_source_choice=='sft'")
+
+        eval_gen_sft = torch.Generator(device="cpu").manual_seed(train_cfg.seed)
+
+        def sft_batch_fn():
+            return val_mixture.get_batch(B=eval_B, generator=eval_gen_sft)
+
+        val_sft_loss = evaluate_sft(
+            model,
+            batch_fn=sft_batch_fn,
+            eval_batches=eval_batches,
+            ignore_index=ignore_index,
+        )
+
+    return val_pretrain_loss, val_sft_loss
+
+
 def run_sft(
     config: SFTJobConfig | dict[str, Any],
     *,
@@ -259,8 +312,17 @@ def run_sft(
     )
     mixture = SFTMixture(sft_train, source_probs)
 
+    # Always load wikitext val for val_pretrain_loss
+    wikitext_val_source = _load_wikitext_val(
+        streams_cache_dir,
+        T=model_cfg.T,
+        expected_tokenizer_sha=job.tokenizer_sha256,
+        expected_special_token_ids=job.special_token_ids,
+    )
+
+    # Load SFT val sources only if val_source_choice == "sft"
     val_sft = None
-    wikitext_val_source = None
+    val_mixture = None
     if val_source_choice == "sft":
         val_sft = _load_sft_sources(
             cache_dir,
@@ -275,13 +337,6 @@ def run_sft(
             expected_special_token_ids=job.special_token_ids,
         )
         val_mixture = SFTMixture(val_sft, {k: v / sum(source_probs.values()) for k, v in source_probs.items()})
-    else:
-        wikitext_val_source = _load_wikitext_val(
-            streams_cache_dir,
-            T=model_cfg.T,
-            expected_tokenizer_sha=job.tokenizer_sha256,
-            expected_special_token_ids=job.special_token_ids,
-        )
 
     resume_ckpt = _resolve_resume_path(resume_path, no_auto_resume=no_auto_resume, phase="sft")
 
@@ -304,7 +359,8 @@ def run_sft(
 
     start_step = 0
     best_val_loss: float | None = None
-    last_val_loss: float | None = None
+    last_val_pretrain_loss: float | None = None
+    last_val_sft_loss: float | None = None
 
     torch.manual_seed(train_cfg.seed)
 
@@ -381,42 +437,35 @@ def run_sft(
         step_num = step + 1
         if step_num % train_cfg.log_every == 0:
             ma_loss = sum(loss_window) / len(loss_window)
-            lv = f"{last_val_loss:.4f}" if last_val_loss is not None else "n/a"
+            lvp = f"{last_val_pretrain_loss:.4f}" if last_val_pretrain_loss is not None else "n/a"
+            lvs = f"{last_val_sft_loss:.4f}" if last_val_sft_loss is not None else "n/a"
             print(
-                f"[sft] step {step_num}/{total_steps} | lr {lr:.6f} | train_loss {ma_loss:.4f} | last_val {lv}"
+                f"[sft] step {step_num}/{total_steps} | lr {lr:.6f} | train_loss {ma_loss:.4f} | "
+                f"val_pretrain {lvp} | val_sft {lvs}"
             )
 
         if step_num % train_cfg.eval_every == 0:
-            if val_source_choice == "sft":
-                eval_gen = torch.Generator(device="cpu").manual_seed(train_cfg.seed)
+            last_val_pretrain_loss, last_val_sft_loss = run_eval_tick(
+                model,
+                device=device,
+                train_cfg=train_cfg,
+                eval_batches=eval_batches,
+                val_source_choice=val_source_choice,
+                wikitext_val_source=wikitext_val_source,
+                val_mixture=val_mixture,
+            )
 
-                def val_batch_fn():
-                    return val_mixture.get_batch(
-                        B=train_cfg.micro_B_eval or train_cfg.B, generator=eval_gen
-                    )
+            val_sft_loss_str = f"{last_val_sft_loss:.4f}" if last_val_sft_loss is not None else "None"
+            print(
+                f"[sft] val_pretrain_loss {last_val_pretrain_loss:.4f} | "
+                f"val_sft_loss {val_sft_loss_str}"
+            )
 
-                last_val_loss = evaluate_sft(
-                    model, batch_fn=val_batch_fn, eval_batches=eval_batches
-                )
-            else:
-                eval_gen = torch.Generator(device="cpu").manual_seed(train_cfg.seed)
-
-                def val_batch_fn():
-                    eval_B = train_cfg.micro_B_eval or train_cfg.B
-                    xs = []
-                    ys = []
-                    for _ in range(eval_B):
-                        x_single, y_single = wikitext_val_source.sample(device=device, generator=eval_gen)
-                        xs.append(x_single)
-                        ys.append(y_single)
-                    return torch.stack(xs, dim=0), torch.stack(ys, dim=0)
-
-                last_val_loss = evaluate_pretrain(
-                    model, batch_fn=val_batch_fn, eval_batches=eval_batches
-                )
-            print(f"[sft] val_{val_source_choice}_loss {last_val_loss:.4f}")
-            if train_cfg.save_best and (best_val_loss is None or last_val_loss < best_val_loss):
-                best_val_loss = last_val_loss
+            # Checkpoint selection unchanged: use the metric from val_source_choice
+            # (val_sft_loss when val_source_choice=="sft", val_pretrain_loss when "wikitext")
+            checkpoint_val = last_val_sft_loss if val_source_choice == "sft" else last_val_pretrain_loss
+            if train_cfg.save_best and (best_val_loss is None or checkpoint_val < best_val_loss):
+                best_val_loss = checkpoint_val
                 save_checkpoint(
                     best_path,
                     model_cfg=model_cfg_saved,
@@ -471,7 +520,8 @@ def run_sft(
     return {
         "final_step": total_steps,
         "best_val_loss": best_val_loss,
-        "last_val_loss": last_val_loss,
+        "last_val_pretrain_loss": last_val_pretrain_loss,
+        "last_val_sft_loss": last_val_sft_loss,
         "latest_path": latest_path,
         "best_path": best_path,
     }
