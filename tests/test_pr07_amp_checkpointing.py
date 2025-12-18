@@ -28,7 +28,7 @@ class TestConfigDefaults:
         train_cfg = job_config.train_cfg
 
         # New fields should have correct defaults
-        assert train_cfg.amp is True
+        assert train_cfg.amp is False
         assert train_cfg.amp_dtype == "fp16"
         assert train_cfg.activation_checkpointing is False
 
@@ -37,7 +37,7 @@ class TestConfigDefaults:
         cfg = {"model": {"V": 128}, "training": {"pretrain": {}}}
         job_config = load_pretrain_job_config(cfg, run_id="test-defaults")
         train_cfg = job_config.train_cfg
-        assert train_cfg.amp is True
+        assert train_cfg.amp is False
         assert train_cfg.amp_dtype == "fp16"
         assert train_cfg.activation_checkpointing is False
 

@@ -114,25 +114,36 @@ naming matters: whatever key you put in `data.mix_pretrain` must match the direc
 - pipeline config file (just points to the two JSONs):
 
 ```json
-{ "pretrain_config_path": "configs/pretrain.json", "sft_config_path": "configs/sft.json" }
+{ "pretrain_config_path": "configs/minimal-pretrain.json", "sft_config_path": "configs/minimal-sft.json" }
 ```
 
 ### 5) run training
 - CLI and flags:
 
-```27:100:train/run.py
-parser.add_argument("--phase", required=True, choices=["pretrain", "sft", "pipeline"])
-parser.add_argument("--config", required=True)
-parser.add_argument("--device", default=None)      # cpu|mps, default auto
-parser.add_argument("--resume", default=None)      # checkpoint path
-parser.add_argument("--no-resume", action="store_true")
-parser.add_argument("--print_config", action="store_true")
+```bash
+# List available profiles
+python -m train.run --list-profiles
+
+# Use a named profile (recommended)
+python -m train.run --phase pretrain --profile smoke-pretrain
+python -m train.run --phase pretrain --profile dev
+python -m train.run --phase sft --profile dev-sft
+
+# Or use a custom config file
+python -m train.run --phase pretrain --config configs/my-config.json
 ```
 
-commands:
-- pretrain: `python -m train.run --phase pretrain --config configs/pretrain.json --device mps`
-- sft: `python -m train.run --phase sft --config configs/sft.json --device mps --resume checkpoints/latest.pt` (or `--no-resume` to start fresh)
-- pipeline: `python -m train.run --phase pipeline --config configs/pipeline.json --device mps`
+Available profiles:
+- **smoke-pretrain**, **smoke-sft**: Ultra-fast validation (2 steps, ~30s on CPU)
+- **dev**, **dev-sft**: Development iteration (small models, laptop-friendly)
+- **prod**, **prod-sft**: Production-scale training (full models, GPU required)
+- **minimal**, **minimal-sft**: Bare-bones configs with minimal overrides
+- **pipeline-dev**, **pipeline-prod**: Two-phase pretrain→SFT
+
+Example commands:
+- pretrain: `python -m train.run --phase pretrain --profile dev --device mps`
+- sft: `python -m train.run --phase sft --profile dev-sft --device mps --resume checkpoints/latest.pt` (or `--no-resume` to start fresh)
+- pipeline: `python -m train.run --phase pipeline --profile pipeline-dev --device mps`
 
 each run writes `runs/<run_id>/resolved_settings.json` plus checkpoints in `checkpoints/`.
 
@@ -169,5 +180,32 @@ python -m niels_gpt.chat_cli \
 defaults: system prompt from file if present, otherwise a built-in surly voice; stop token is the eot id; banned tokens default to role tokens when `ban_role_tokens_during_generation` is true.
 
 ### 7) quick sanity
-- fast cache + train smoke: use `configs/smoke.json` (short pretrain) and `configs/sft_smoke.json` (2-step sft). good for checking wiring and cache names before a long run.
+- fast cache + train smoke: use the smoke profiles (`--profile smoke-pretrain` and `--profile smoke-sft`). good for checking wiring and cache names before a long run.
 - resolved settings in `runs/<run_id>/resolved_settings.json` tell you exactly what config was used (good for reproducibility).
+
+### 8) overnight / full pipeline runs
+
+convenience scripts for long-running training:
+
+```bash
+# Overnight run (~8 hours, production models)
+# Assumes tokenizer and caches already exist
+./scripts/run_overnight.sh
+
+# Or customize device
+DEVICE=cpu ./scripts/run_overnight.sh
+
+# Full pipeline including tokenizer and cache building
+# (only needed first time or when changing data)
+SKIP_TOKENIZER=false SKIP_CACHE=false ./scripts/run_full_pipeline.sh pipeline-prod
+
+# Dev pipeline (faster, for testing)
+./scripts/run_full_pipeline.sh pipeline-dev
+```
+
+what each script does:
+- `run_overnight.sh`: runs production pipeline (pretrain → SFT) with prod profiles. assumes setup already done.
+- `run_full_pipeline.sh`: optionally builds tokenizer + caches, then runs pipeline. controlled via env vars:
+  - `SKIP_TOKENIZER=false`: rebuild tokenizer
+  - `SKIP_CACHE=false`: rebuild caches
+  - `DEVICE=mps|cpu`: override device selection

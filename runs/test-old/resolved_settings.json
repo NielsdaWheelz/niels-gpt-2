@@ -4,7 +4,7 @@
     4,
     5
   ],
-  "generated_at_utc": "2025-12-18T03:30:05.609803+00:00",
+  "generated_at_utc": "2025-12-18T03:56:15.389729+00:00",
   "model_cfg": {
     "C": 384,
     "H": 6,
@@ -224,7 +224,7 @@
       "pretrain": {
         "accum_steps": 1,
         "activation_checkpointing": false,
-        "amp": true,
+        "amp": false,
         "amp_dtype": "fp16",
         "base_lr": 0.0003,
         "best_metric": "pretrain_val_loss",
@@ -255,7 +255,7 @@
       "sft": {
         "accum_steps": 1,
         "activation_checkpointing": false,
-        "amp": true,
+        "amp": false,
         "amp_dtype": "fp16",
         "base_lr": 0.0001,
         "best_metric": "sft_val_loss",
@@ -318,7 +318,7 @@
     "B": 8,
     "accum_steps": 1,
     "activation_checkpointing": false,
-    "amp": true,
+    "amp": false,
     "amp_dtype": "fp16",
     "base_lr": 0.0003,
     "best_metric": "pretrain_val_loss",

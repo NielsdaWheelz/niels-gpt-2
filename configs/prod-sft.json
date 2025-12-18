@@ -1,0 +1,30 @@
+{
+  "model": {
+    "V": 50257,
+    "T": 512,
+    "C": 384,
+    "L": 8,
+    "H": 6,
+    "d_ff": 1152
+  },
+  "training": {
+    "sft": {
+      "micro_B": 8,
+      "total_steps": 10000,
+      "eval_every": 500,
+      "ckpt_every": 1000,
+      "base_lr": 0.0001,
+      "warmup_steps": 200,
+      "min_lr": 0.00001,
+      "amp": true,
+      "amp_dtype": "fp16",
+      "activation_checkpointing": false
+    }
+  },
+  "data": {
+    "mix_sft": {
+      "dolly15k": 0.6,
+      "oasst1": 0.4
+    }
+  }
+}

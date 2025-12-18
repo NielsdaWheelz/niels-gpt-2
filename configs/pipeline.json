@@ -1,5 +1,4 @@
 {
-  "pretrain_config_path": "configs/pretrain.json",
-  "sft_config_path": "configs/sft.json"
+  "pretrain_config_path": "configs/minimal-pretrain.json",
+  "sft_config_path": "configs/minimal-sft.json"
 }
-

@@ -6,6 +6,7 @@ import json
 import sys
 
 from niels_gpt.device import get_device
+from niels_gpt.profiles import get_profile, format_profile_list
 
 from train.config import (
     load_pipeline_config,
@@ -25,21 +26,69 @@ def _validate_device(device: str | None) -> str | None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="pr-06 training runner")
-    parser.add_argument("--phase", required=True, choices=["pretrain", "sft", "pipeline"])
-    parser.add_argument("--config", required=True, help="path to phase config json")
+    parser = argparse.ArgumentParser(
+        description="niels-gpt training runner",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  # Use a named profile
+  python -m train.run --phase pretrain --profile smoke-pretrain
+  python -m train.run --phase sft --profile dev-sft
+  python -m train.run --phase pipeline --profile pipeline-dev
+
+  # Use a custom config file
+  python -m train.run --phase pretrain --config configs/my-custom.json
+
+  # List all available profiles
+  python -m train.run --list-profiles
+
+  # Resume from checkpoint
+  python -m train.run --phase pretrain --profile dev --resume runs/my-run/checkpoints/latest.pt
+        """,
+    )
+    parser.add_argument("--phase", choices=["pretrain", "sft", "pipeline"], help="training phase")
+    parser.add_argument(
+        "--profile",
+        help="named profile (e.g., 'smoke-pretrain', 'dev', 'prod'). Use --list-profiles to see all options.",
+    )
+    parser.add_argument("--config", help="path to custom config json (overrides --profile)")
     parser.add_argument("--device", default=None, help="cpu or mps (default: auto)")
     parser.add_argument("--resume", default=None, help="checkpoint path to resume from")
     parser.add_argument("--no-resume", action="store_true", help="disable auto-resume from checkpoints/latest.pt")
     parser.add_argument("--print_config", action="store_true", help="print resolved settings and exit")
+    parser.add_argument("--list-profiles", action="store_true", help="list all available configuration profiles")
     args = parser.parse_args()
+
+    # Handle --list-profiles
+    if args.list_profiles:
+        print(format_profile_list())
+        return
+
+    # Validate required arguments
+    if not args.phase:
+        parser.error("--phase is required (unless using --list-profiles)")
+    if not args.profile and not args.config:
+        parser.error("either --profile or --config is required")
+
+    # Resolve config path from profile or explicit path
+    if args.config:
+        config_path = args.config
+    else:
+        try:
+            profile = get_profile(args.profile)
+            config_path = str(profile.path)
+            print(f"using profile: {profile.name}")
+            print(f"  → {profile.description}")
+        except KeyError as e:
+            print(f"error: {e}")
+            sys.exit(1)
 
     device = _validate_device(args.device) or get_device()
     print(f"using device: {device}")
 
     try:
         if args.phase == "pretrain":
-            cfg = load_pretrain_job_config(args.config)
+            cfg = load_pretrain_job_config(config_path)
             if args.print_config:
                 print(json.dumps(cfg.resolved.settings.model_dump(), indent=2))
                 return
@@ -50,7 +99,7 @@ def main() -> None:
                 no_auto_resume=args.no_resume,
             )
         elif args.phase == "sft":
-            cfg = load_sft_job_config(args.config)
+            cfg = load_sft_job_config(config_path)
             if args.print_config:
                 print(json.dumps(cfg.resolved.settings.model_dump(), indent=2))
                 return
@@ -61,7 +110,7 @@ def main() -> None:
                 no_auto_resume=args.no_resume,
             )
         else:  # pipeline
-            pipeline_cfg = load_pipeline_config(args.config)
+            pipeline_cfg = load_pipeline_config(config_path)
             pretrain_cfg_path = pipeline_cfg.pretrain_config_path
             sft_cfg_path = pipeline_cfg.sft_config_path
 
