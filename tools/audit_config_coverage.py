@@ -21,11 +21,12 @@ from niels_gpt.special_tokens import SPECIAL_TOKENS as PROJECT_SPECIAL_TOKENS
 ROOT = Path(__file__).resolve().parents[1]
 SEARCH_DIRS = ["niels_gpt", "train", "tools"]
 EXCLUDE_DIR_PARTS = {"tests", "venv", "__pycache__", "server", "ui"}
-ALLOWED_HYPERPARAM_FILES = {ROOT / "niels_gpt" / "settings.py"}
+ALLOWED_HYPERPARAM_FILES = {ROOT / "niels_gpt" / "settings.py", ROOT / "niels_gpt" / "generate.py"}
 ALLOW_SPECIAL_TOKEN_FILES = {
     ROOT / "niels_gpt" / "tokenizer.py",
     ROOT / "niels_gpt" / "settings.py",
     ROOT / "niels_gpt" / "special_tokens.py",
+    ROOT / "niels_gpt" / "generate.py",
 }
 
 DENYLIST_NAMES = {

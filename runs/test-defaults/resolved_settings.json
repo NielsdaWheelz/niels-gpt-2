@@ -4,7 +4,7 @@
     4,
     5
   ],
-  "generated_at_utc": "2025-12-17T23:56:23.430815+00:00",
+  "generated_at_utc": "2025-12-18T03:30:05.631311+00:00",
   "model_cfg": {
     "C": 384,
     "H": 6,
@@ -64,7 +64,7 @@
     "data": {
       "allow_missing_idx": false,
       "caches": {
-        "pretrain_token_cache": "/Users/nnandal/Documents/code/niels-gpt/data/cache/streams",
+        "pretrain_token_cache": "/Users/nnandal/Documents/code/niels-gpt/data/cache/pretrain",
         "raw_cache_dir": "/Users/nnandal/Documents/code/niels-gpt/data/cache/hf",
         "sft_token_cache": "/Users/nnandal/Documents/code/niels-gpt/data/cache/sft",
         "streams_token_cache": "/Users/nnandal/Documents/code/niels-gpt/data/cache/streams"
@@ -107,14 +107,13 @@
         "streaming": true
       },
       "mix_pretrain": {
-        "primer": 0.1,
-        "roam": 0.18,
-        "wiki": 0.72
+        "fineweb_edu": 0.7,
+        "roam": 0.1,
+        "wikitext": 0.2
       },
       "mix_sft": {
-        "dolly": 0.2,
-        "oasst1": 0.6,
-        "primer": 0.2
+        "dolly15k": 0.33,
+        "oasst1": 0.67
       },
       "oasst1": {
         "dataset_id": "OpenAssistant/oasst1",
@@ -140,8 +139,8 @@
         "split_seed": 42,
         "val_frac": 0.1
       },
-      "val_pretrain_source": "wiki",
-      "val_sft_source": "wiki",
+      "val_pretrain_source": "wikitext",
+      "val_sft_source": "wikitext",
       "wikitext": {
         "chunking": {
           "pack_to_T": true,

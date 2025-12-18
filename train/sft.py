@@ -16,6 +16,7 @@ from niels_gpt.config import to_dict
 from niels_gpt.device import get_device
 from niels_gpt.lr_schedule import lr_at_step
 from niels_gpt.model.gpt import GPT
+from niels_gpt.train.cache_validate import format_data_plan, validate_token_caches
 
 from train.amp_utils import get_amp_context
 from train.checkpointing import (
@@ -240,6 +241,9 @@ def run_sft(
     allow_missing_idx = job.allow_missing_idx
     cache_dir = job.cache_dir
     streams_cache_dir = job.streams_cache_dir
+
+    validate_token_caches(cache_dir, source_probs.keys(), splits=("train", "val"))
+    print(format_data_plan("sft", cache_dir, source_probs.keys(), splits=("train", "val")))
 
     sft_train = _load_sft_sources(
         cache_dir,

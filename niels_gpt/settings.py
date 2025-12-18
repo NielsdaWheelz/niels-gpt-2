@@ -204,6 +204,10 @@ def _default_sft_mix() -> dict[str, float]:
     return {"oasst1": 0.67, "dolly15k": 0.33}
 
 
+VALID_PRETRAIN_SOURCES = {"wikitext", "fineweb_edu", "gutenberg", "roam"}
+VALID_SFT_SOURCES = {"dolly15k", "oasst1"}
+
+
 class DataSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -224,11 +228,27 @@ class DataSettings(BaseModel):
 
     @model_validator(mode="after")
     def _validate_mix(self) -> "DataSettings":
-        for name, mix in [("mix_pretrain", self.mix_pretrain), ("mix_sft", self.mix_sft)]:
-            if mix:
-                total = sum(mix.values())
-                if abs(total - 1.0) > 1e-6:
-                    raise ValueError(f"{name} probabilities must sum to 1.0, got {total}")
+        mix_specs = [
+            ("mix_pretrain", self.mix_pretrain, VALID_PRETRAIN_SOURCES),
+            ("mix_sft", self.mix_sft, VALID_SFT_SOURCES),
+        ]
+        for name, mix, valid_keys in mix_specs:
+            if not mix:
+                raise ValueError(f"{name} must be non-empty and use keys from {sorted(valid_keys)}")
+
+            invalid = sorted(set(mix.keys()) - valid_keys)
+            if invalid:
+                raise ValueError(f"{name} contains invalid keys {invalid}; valid keys are {sorted(valid_keys)}")
+
+            for key, val in mix.items():
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    raise ValueError(f"{name}[{key}] must be a float in (0, 1], got {val!r}")
+                if not (0.0 < float(val) <= 1.0):
+                    raise ValueError(f"{name}[{key}] must be in (0, 1], got {val}")
+
+            total = sum(float(v) for v in mix.values())
+            if abs(total - 1.0) > 1e-6:
+                raise ValueError(f"{name} probabilities must sum to 1.0, got {total}")
         return self
 
 

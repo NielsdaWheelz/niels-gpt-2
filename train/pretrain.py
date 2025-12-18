@@ -16,6 +16,7 @@ from niels_gpt.config import to_dict
 from niels_gpt.device import get_device
 from niels_gpt.lr_schedule import lr_at_step
 from niels_gpt.model.gpt import GPT
+from niels_gpt.train.cache_validate import format_data_plan, validate_token_caches
 
 from train.amp_utils import get_amp_context
 from train.checkpointing import (
@@ -232,6 +233,47 @@ def _load_source_sharded(
     return PretrainSource(source, shards=shards, shard_lengths=shard_lengths, T=T)
 
 
+def _load_source(
+    cache_dir: Path,
+    source: str,
+    split: str,
+    *,
+    T: int,
+    expected_tokenizer_sha: str | None,
+    expected_special_token_ids: dict[str, int] | None,
+) -> PretrainSource:
+    """Legacy flat cache loader preserved for compatibility/testing."""
+    meta_path = cache_dir / f"{source}_{split}.meta.json"
+    tokens_path = cache_dir / f"{source}_{split}.bin"
+
+    if not meta_path.exists():
+        raise FileNotFoundError(f"missing meta file: {meta_path}")
+    if not tokens_path.exists():
+        raise FileNotFoundError(f"missing tokens file: {tokens_path}")
+
+    meta = _load_meta(meta_path)
+
+    if expected_tokenizer_sha and meta.get("tokenizer_sha256") not in {expected_tokenizer_sha}:
+        raise ValueError(
+            f"tokenizer hash mismatch for {source}/{split}: cache has {meta.get('tokenizer_sha256')}, "
+            f"expected {expected_tokenizer_sha}"
+        )
+
+    if expected_special_token_ids:
+        meta_special = meta.get("special_token_ids")
+        if meta_special != expected_special_token_ids:
+            raise ValueError(
+                f"special token ids mismatch for {source}/{split}: cache has {meta_special}, "
+                f"expected {expected_special_token_ids}"
+            )
+
+    shard = np.memmap(tokens_path, dtype=_infer_dtype(meta), mode="r")
+    if len(shard) < T + 1:
+        raise ValueError(f"source {source} too short for T={T}: need >= {T + 1}, got {len(shard)}")
+
+    return PretrainSource(source, shards=[shard], shard_lengths=[len(shard)], T=T)
+
+
 def _load_sources(
     cache_dir: Path,
     source_names: Iterable[str],
@@ -322,6 +364,9 @@ def run_pretrain(
         raise ValueError("sources must be a non-empty mapping of source -> probability")
     val_source_name = job.val_source
     cache_dir = job.cache_dir
+
+    validate_token_caches(cache_dir, source_probs.keys(), splits=("train", "val"))
+    print(format_data_plan("pretrain", cache_dir, source_probs.keys(), splits=("train", "val")))
 
     train_sources = _load_sources(
         cache_dir,

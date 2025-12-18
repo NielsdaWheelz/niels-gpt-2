@@ -14,9 +14,12 @@ from niels_gpt.tokenizer import DEFAULT_TOKENIZER_PATH, load_tokenizer
 
 
 def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) -> None:
-    base.mkdir(parents=True, exist_ok=True)
-    bin_path = base / f"{source}_{split}.bin"
-    meta_path = base / f"{source}_{split}.meta.json"
+    source_dir = base / source
+    split_dir = source_dir / split
+    split_dir.mkdir(parents=True, exist_ok=True)
+
+    bin_path = split_dir / "shard_00000.bin"
+    meta_path = source_dir / "meta.json"
     arr = np.asarray(tokens, dtype="<u2")
     with open(bin_path, "wb") as f:
         f.write(arr.tobytes())
@@ -33,10 +36,13 @@ def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) 
 
 
 def _write_sft_cache(base: Path, source: str, split: str, sequences: list[list[int]], special: dict[str, int]) -> None:
-    base.mkdir(parents=True, exist_ok=True)
-    tokens_path = base / f"{source}_{split}.bin"
-    idx_path = base / f"{source}_{split}.idx.npy"
-    meta_path = base / f"{source}_{split}.meta.json"
+    source_dir = base / source
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / split).mkdir(exist_ok=True)
+
+    tokens_path = source_dir / f"{split}_tokens.bin"
+    idx_path = source_dir / f"{split}_idx.npy"
+    meta_path = source_dir / "meta.json"
 
     offsets: list[int] = []
     pos = 0
@@ -79,9 +85,8 @@ def test_pretrain_smoke():
         orig_ckpt = _patch_checkpoints(ckpt_dir)
         try:
             sources = {
-                "wiki": list(range(100, 150)),
+                "wikitext": list(range(100, 150)),
                 "roam": list(range(200, 260)),
-                "primer": list(range(300, 360)),
             }
             for src, toks in sources.items():
                 _write_stream_cache(streams_dir, src, "train", toks)
@@ -115,8 +120,8 @@ def test_pretrain_smoke():
                     }
                 },
                 "data": {
-                    "mix_pretrain": {"wiki": 0.6, "roam": 0.3, "primer": 0.1},
-                    "val_pretrain_source": "wiki",
+                    "mix_pretrain": {"wikitext": 0.7, "roam": 0.3},
+                    "val_pretrain_source": "wikitext",
                     "caches": {"pretrain_token_cache": str(streams_dir)},
                 },
             }
@@ -139,7 +144,7 @@ def test_resume_smoke():
         orig_ckpt = _patch_checkpoints(ckpt_dir)
         try:
             tokens = list(range(100, 200))
-            for src in ["wiki", "roam", "primer"]:
+            for src in ["wikitext", "roam"]:
                 _write_stream_cache(streams_dir, src, "train", tokens)
                 _write_stream_cache(streams_dir, src, "val", tokens)
 
@@ -155,8 +160,8 @@ def test_resume_smoke():
                     "rope_theta": 10000.0,
                 },
                 "data": {
-                    "mix_pretrain": {"wiki": 0.7, "roam": 0.2, "primer": 0.1},
-                    "val_pretrain_source": "wiki",
+                    "mix_pretrain": {"wikitext": 0.7, "roam": 0.3},
+                    "val_pretrain_source": "wikitext",
                     "caches": {"pretrain_token_cache": str(streams_dir)},
                 },
             }
@@ -229,12 +234,12 @@ def test_sft_masking_smoke():
                 21,
                 special["eot"],
             ]
-            _write_sft_cache(sft_dir, "dolly", "train", [seq], special)
-            _write_sft_cache(sft_dir, "dolly", "val", [seq], special)
+            _write_sft_cache(sft_dir, "dolly15k", "train", [seq], special)
+            _write_sft_cache(sft_dir, "dolly15k", "val", [seq], special)
 
             ds = SFTExampleDataset(
-                str(sft_dir / "dolly_train.bin"),
-                str(sft_dir / "dolly_train.idx.npy"),
+                str(sft_dir / "dolly15k" / "train_tokens.bin"),
+                str(sft_dir / "dolly15k" / "train_idx.npy"),
                 T=len(seq) - 1,
                 device="cpu",
                 eot_id=special["eot"],
@@ -284,7 +289,7 @@ def test_sft_masking_smoke():
                     }
                 },
                 "data": {
-                    "mix_sft": {"dolly": 1.0},
+                    "mix_sft": {"dolly15k": 1.0},
                     "val_sft_source": "sft",
                     "caches": {
                         "sft_token_cache": str(sft_dir),
@@ -294,7 +299,7 @@ def test_sft_masking_smoke():
             }
 
             # Provide dummy wiki cache for completeness even if unused
-            _write_stream_cache(streams_dir, "wiki", "val", list(range(20)))
+            _write_stream_cache(streams_dir, "wikitext", "val", list(range(20)))
             run_sft(cfg, device="cpu", no_auto_resume=True)
             assert (ckpt_dir / "latest.pt").exists()
         finally:

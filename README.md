@@ -116,12 +116,12 @@ python -m niels_gpt.cache.cli build-all \
 **full pipeline smoke (pretrain → sft → generation)**
 pretrain smoke
 ```bash
-python -m train.run --phase pretrain --config configs/pretrain_smoke.json
+python -m train.run --phase pretrain --config configs/pretrain_smoke.json --no-resume
 ```
 
 sft smoke
 ```bash
-python -m train.run --phase sft --config configs/smoke.json
+python -m train.run --phase sft --config configs/smoke.json --no-resume
 ```
 
 chat (interactive)
