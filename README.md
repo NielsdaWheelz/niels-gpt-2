@@ -400,9 +400,9 @@ flowchart TD
 
 ### model architecture (`niels_gpt.model`)
 - `GPT(cfg)`: byte-level decoder-only transformer. Stack: token embedding -> dropout -> `L` Blocks -> layer norm -> tied LM head.
-- `Block`: pre-norm residual block: attention then MLP with dropout.
-- `CausalSelfAttention`: multi-head attention with rotary position embeddings (RoPE), causal mask, dropout.
-- `MLP`: two linear layers with GELU.
+- `Block`: pre-norm residual block: attention then MLP (dropout applied inside each submodule, not at block level).
+- `CausalSelfAttention`: multi-head attention with rotary position embeddings (RoPE), causal mask, attn_dropout on probs, resid_dropout on output.
+- `MLP`: SwiGLU feed-forward with resid_dropout on output.
 - weights init: normal(0,0.02) for linear/embedding; layernorm weight=1, bias=0.
 
 ### training loop (`train.pretrain` / `train.sft`)
