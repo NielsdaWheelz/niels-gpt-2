@@ -332,10 +332,10 @@ x = x + mlp(norm(x))
 ```python
 class Block(nn.Module):
     def forward(self, x):
-        # Attention with pre-norm and residual
-        x = x + dropout(attn(norm1(x)))
-        # MLP with pre-norm and residual
-        x = x + dropout(mlp(norm2(x)))
+        # Attention with pre-norm and residual (dropout inside attn)
+        x = x + attn(norm1(x))
+        # MLP with pre-norm and residual (dropout inside mlp)
+        x = x + mlp(norm2(x))
         return x
 ```
 
@@ -750,9 +750,7 @@ def forward(self, x):
     return x / rms * self.weight
 ```
 
-**Critique:** All implementations are correct. The RoPE dtype caching is smart (avoids repeated conversions). Block structure follows pre-norm pattern correctly.
-
-**Potential issue:** Dropout is applied both inside attention (on weights and residual) and in the Block wrapper. This is double-dropout in some paths, but matches common practice.
+**Critique:** All implementations are correct. The RoPE dtype caching is smart (avoids repeated conversions). Block structure follows pre-norm pattern correctly. Dropout is applied exactly once per sublayer: attn_dropout + resid_dropout in attention, resid_dropout in MLP. No block-level dropout wrapper.
 
 #### `niels_gpt/model/rope.py`
 **Purpose:** RoPE implementation.
@@ -1010,13 +1008,11 @@ t: int     # current position
 
 1. **Primer cache not in CLI:** Must build manually.
 
-2. **Double dropout:** Block adds dropout around attention/mlp, but attention also has internal dropout. Likely harmless.
+2. **Fixed special token IDs:** If you retrain tokenizer differently, must update settings.
 
-3. **Fixed special token IDs:** If you retrain tokenizer differently, must update settings.
+3. **No eval metrics beyond loss:** No perplexity, no downstream benchmarks.
 
-4. **No eval metrics beyond loss:** No perplexity, no downstream benchmarks.
-
-5. **No checkpoint pruning:** Can accumulate many step_*.pt files.
+4. **No checkpoint pruning:** Can accumulate many step_*.pt files.
 
 ---
 

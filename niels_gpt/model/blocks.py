@@ -36,6 +36,7 @@ class MLP(nn.Module):
         Linear(C, d_ff) -> gate with SiLU
         Linear(C, d_ff) -> value
         out = Linear(d_ff, C)(silu(gate) * value)
+        out = resid_dropout(out)
     """
 
     def __init__(self, cfg: ModelConfig):
@@ -43,6 +44,7 @@ class MLP(nn.Module):
         self.fc_a = nn.Linear(cfg.C, cfg.d_ff, bias=True)
         self.fc_g = nn.Linear(cfg.C, cfg.d_ff, bias=True)
         self.fc_out = nn.Linear(cfg.d_ff, cfg.C, bias=True)
+        self.resid_dropout = nn.Dropout(cfg.dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -58,6 +60,7 @@ class MLP(nn.Module):
         g = F.silu(self.fc_g(x))
         h = g * a
         out = self.fc_out(h)
+        out = self.resid_dropout(out)
         return out
 
 
@@ -373,8 +376,8 @@ class Block(nn.Module):
     Pre-norm transformer block with causal self-attention and SwiGLU MLP.
 
     Architecture:
-        x = x + dropout(attn(ln1(x)))
-        x = x + dropout(mlp(ln2(x)))
+        x = x + attn(ln1(x))  # dropout applied inside CausalSelfAttention
+        x = x + mlp(ln2(x))   # dropout applied inside MLP
     """
 
     def __init__(self, cfg: ModelConfig):
@@ -383,7 +386,6 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(cfg)
         self.ln2 = RMSNorm(cfg.C, eps=1e-5)
         self.mlp = MLP(cfg)
-        self.dropout = nn.Dropout(cfg.dropout)
 
     def forward(
         self,
@@ -403,15 +405,15 @@ class Block(nn.Module):
             If return_attn=True: tuple of (output, attention_weights) where
                 attention_weights has shape (B, H, T, T).
         """
-        # Attention with residual
+        # Attention with residual (dropout applied inside CausalSelfAttention)
         if return_attn:
             attn_out, attn_probs = self.attn(self.ln1(x), return_attn=True)
-            x = x + self.dropout(attn_out)
+            x = x + attn_out
         else:
-            x = x + self.dropout(self.attn(self.ln1(x)))
+            x = x + self.attn(self.ln1(x))
 
-        # MLP with residual
-        x = x + self.dropout(self.mlp(self.ln2(x)))
+        # MLP with residual (dropout applied inside MLP)
+        x = x + self.mlp(self.ln2(x))
 
         if return_attn:
             return x, attn_probs
@@ -439,14 +441,14 @@ class Block(nn.Module):
             attn_row: If return_attn_row=True, attention probs (B, H, t0) for
                       the last prompt token. Otherwise None.
         """
-        # Attention with residual
+        # Attention with residual (dropout applied inside CausalSelfAttention)
         attn_out, attn_row = self.attn.prefill(
             self.ln1(x), cache=cache, layer_idx=layer_idx, return_attn_row=return_attn_row
         )
-        x = x + self.dropout(attn_out)
+        x = x + attn_out
 
-        # MLP with residual
-        x = x + self.dropout(self.mlp(self.ln2(x)))
+        # MLP with residual (dropout applied inside MLP)
+        x = x + self.mlp(self.ln2(x))
 
         return x, attn_row
 
@@ -474,7 +476,7 @@ class Block(nn.Module):
             attn_row: If return_attn_row=True, attention probs (B, H, pos+1).
                       Otherwise None.
         """
-        # Attention with residual
+        # Attention with residual (dropout applied inside CausalSelfAttention)
         attn_out, attn_row = self.attn.decode_step(
             self.ln1(x),
             cache=cache,
@@ -482,10 +484,10 @@ class Block(nn.Module):
             pos=pos,
             return_attn_row=return_attn_row,
         )
-        x = x + self.dropout(attn_out)
+        x = x + attn_out
 
-        # MLP with residual
-        x = x + self.dropout(self.mlp(self.ln2(x)))
+        # MLP with residual (dropout applied inside MLP)
+        x = x + self.mlp(self.ln2(x))
 
         return x, attn_row
 
