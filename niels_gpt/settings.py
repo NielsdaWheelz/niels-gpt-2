@@ -223,7 +223,7 @@ class DataSettings(BaseModel):
     mix_pretrain: dict[str, float] = Field(default_factory=_default_pretrain_mix)
     mix_sft: dict[str, float] = Field(default_factory=_default_sft_mix)
     val_pretrain_source: str = "wikitext"
-    val_sft_source: str = "wikitext"
+    val_sft_source: str = "sft"
     allow_missing_idx: bool = False
 
     @model_validator(mode="after")
@@ -249,6 +249,11 @@ class DataSettings(BaseModel):
             total = sum(float(v) for v in mix.values())
             if abs(total - 1.0) > 1e-6:
                 raise ValueError(f"{name} probabilities must sum to 1.0, got {total}")
+
+        # Validate val_sft_source
+        if self.val_sft_source not in {"sft", "wikitext"}:
+            raise ValueError(f"val_sft_source must be 'sft' or 'wikitext', got {self.val_sft_source!r}")
+
         return self
 
 

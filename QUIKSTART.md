@@ -2,10 +2,10 @@
 
 ### prerequisites
 - python env (repo uses torch, datasets, sentencepiece). activate your venv and `pip install -e .` (or `pip install -r requirements.txt` if you keep one).
-- repo paths: `.roam-data/` for roam markdown, `data/primer.txt` for primer text, tokenizer expected at `artifacts/tokenizer/v2/spm.model`. checkpoints land in `checkpoints/`.
+- repo paths: `data/.roam-data/` for roam markdown, `data/primer.txt` for primer text, tokenizer expected at `artifacts/tokenizer/v2/spm.model`. checkpoints land in `checkpoints/`.
 
 ### 1) prepare raw data
-- roam: dump your roam export as markdown under `.roam-data/` (any nesting). default paths/flags expect that.
+- roam: dump your roam export as markdown under `data/.roam-data/` (any nesting). default paths/flags expect that.
 - primer: create `data/primer.txt`; separate dialogue blocks with the delimiter `\n\n<dialogue>\n\n` and avoid empty blocks. splitter rules are enforced here:
 
 ```4:63:niels_gpt/data/primer.py
@@ -21,7 +21,7 @@ def split_primer_dialogues(...):
 
 ```bash
 python scripts/train_tokenizer.py \
-  --input_glob ".roam-data/**/*.md" \
+  --input_glob "data/.roam-data/**/*.md" \
   --input_glob "data/primer.txt" \
   --include_wikitext \
   --fineweb_bytes 20000000 \
@@ -36,7 +36,7 @@ python scripts/train_tokenizer.py \
 ```bash
 python -m niels_gpt.cache.cli build-all \
   --cache-dir data/cache \
-  --roam-dir .roam-data \
+  --roam-dir data/.roam-data \
   --fineweb-train-tokens 200000000 \
   --fineweb-val-tokens 5000000 \
   --shard-bytes 134217728 \
