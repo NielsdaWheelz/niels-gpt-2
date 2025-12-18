@@ -102,6 +102,33 @@ pytest -q tests/test_bench_trial_smoke.py tests/test_bench_sweep_smoke.py
 - don't shrink model too far for speed — you'll get a fast dumb model
 - don't ignore the 90% threshold — configs within 90% of best throughput but with more params are often better
 
+**rebuild caches**
+```bash
+python -m niels_gpt.cache.cli build-all \
+  --cache-dir data/cache \
+  --seed 42 \
+  --fineweb-train-tokens 200000000 \
+  --fineweb-val-tokens 5000000 \
+  --shard-bytes 134217728 \
+  --roam-dir data/.roam-data
+```
+
+**full pipeline smoke (pretrain → sft → generation)**
+pretrain smoke
+```bash
+python -m train.run --phase pretrain --config configs/pretrain_smoke.json
+```
+
+sft smoke
+```bash
+python -m train.run --phase sft --config configs/smoke.json
+```
+
+chat (interactive)
+```bash
+python -m niels_gpt.chat_cli --ckpt checkpoints/latest.pt
+```
+
 ### train (pr-06 runner + pr-07 amp/checkpointing)
 Prereqs:
 - caches must exist:
@@ -191,7 +218,7 @@ Notes: downloads HF datasets (needs network); writes streams under `cache/stream
 python scripts/train_tokenizer.py \
   --input_glob "data/**/*.txt" \
   --input_glob ".roam-data/**/*.md" \
-  --out_dir artifacts/tokenizer \
+  --out_dir artifacts/tokenizer/v2 \
   --vocab_size 16384 \
   --seed 42 \
   --model_type unigram
@@ -270,8 +297,9 @@ pytest -q
 - resume: add `--resume checkpoints/latest.pt` (per-phase)
 - pick device explicitly: add `--device cpu|mps|cuda`
 - chat: `python -m niels_gpt.chat_cli --ckpt checkpoints/latest.pt --max-new-tokens 256 --temperature 0.9 --top-k 50 --seed 42`
-- tokenizer (representative mix): `python scripts/train_tokenizer.py --input_glob "data/.roam-data/**/*.md" --input_glob "data/primer.txt" --include_wikitext --fineweb_bytes 20000000 --out_dir artifacts/tokenizer --vocab_size 16000 --seed 42`
-- tokenizer report: `python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/spm.model --wikitext --fineweb-bytes 20000000`
+- tokenizer (representative mix): `python scripts/train_tokenizer.py --input_glob "data/.roam-data/**/*.md" --input_glob "data/primer.txt" --include_wikitext --fineweb_bytes 20000000 --out_dir artifacts/tokenizer/v2 --vocab_size 16000 --seed 42`
+- tokenizer report: `python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/v2/spm.model --wikitext --fineweb-bytes 20000000`
+- fineweb sample to local file: `python tools/sample_fineweb.py --out data/fineweb_sample_20mb.txt --bytes 20000000`
 - generate primer: `python tools/generate_primer.py --seed 0 --n-per-category 30 --shuffle`
 - download checkpoint: `python tools/download_checkpoint.py`
 - upload checkpoint: `python tools/upload_checkpoint.py` (maintainer only)
@@ -313,7 +341,7 @@ flowchart TD
 
 ### tokenizer + chat formatting
 - `tokenizer.encode(text) -> 1D tensor`: utf-8 bytes -> ids; `decode(ids) -> str` reverses. Tokenizer trained with byte_fallback on roam+primer+wikitext+fineweb sample; caches carry tokenizer sha256 and are rejected on mismatch.
-- dataset builders hard-fail if raw text contains any special token strings (`<|sys|>`, `<|usr|>`, `<|asst|>`, `<|eot|>`).
+- dataset builders hard-fail if raw text contains any special token strings (`<|ngpt_sys_84a5023f67d74cf29cc4001becde983c|>`, `<|ngpt_usr_84a5023f67d74cf29cc4001becde983c|>`, `<|ngpt_asst_84a5023f67d74cf29cc4001becde983c|>`, `<|ngpt_eot_84a5023f67d74cf29cc4001becde983c|>`).
 - `chat_format.format_chat(messages)`: turn-structured string ending with `assistant: ` prompt.
 - `chat_format.extract_assistant_reply(generated_text)`: pulls the last assistant reply, stripping trailing tags.
 

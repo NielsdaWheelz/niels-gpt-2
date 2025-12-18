@@ -16,6 +16,7 @@ from niels_gpt.data import (
     split_roam_paths,
 )
 from niels_gpt.settings import default_settings
+from niels_gpt.special_tokens import assert_no_special_collision
 
 BytesSources = Dict[str, bytes]  # keys: "wiki" | "roam" | "primer"
 
@@ -244,6 +245,11 @@ def build_sources(cfg: StreamBuildConfig) -> Tuple[BytesSources, BytesSources]:
             wiki_train_docs = wiki_data["train"]
             wiki_val_docs = wiki_data["val"]
 
+            for i, doc in enumerate(wiki_train_docs):
+                assert_no_special_collision(doc, dataset="wiki", doc_index=f"train:{i}", field="text")
+            for i, doc in enumerate(wiki_val_docs):
+                assert_no_special_collision(doc, dataset="wiki", doc_index=f"val:{i}", field="text")
+
             # Train
             current_meta = _build_wiki_metadata(
                 wiki_train_docs, cfg.doc_separator, "train"
@@ -294,6 +300,8 @@ def build_sources(cfg: StreamBuildConfig) -> Tuple[BytesSources, BytesSources]:
 
             if train_paths:
                 train_docs = load_texts(train_paths)
+                for path, doc in zip(train_paths, train_docs):
+                    assert_no_special_collision(doc, dataset="roam", doc_index=path, field="text")
                 current_meta = _build_roam_metadata(
                     train_paths,
                     cfg.doc_separator,
@@ -316,6 +324,8 @@ def build_sources(cfg: StreamBuildConfig) -> Tuple[BytesSources, BytesSources]:
 
             if val_paths:
                 val_docs = load_texts(val_paths)
+                for path, doc in zip(val_paths, val_docs):
+                    assert_no_special_collision(doc, dataset="roam", doc_index=path, field="text")
                 current_meta = _build_roam_metadata(
                     val_paths, cfg.doc_separator, "val", cfg.seed, cfg.roam_val_frac
                 )
@@ -355,6 +365,11 @@ def build_sources(cfg: StreamBuildConfig) -> Tuple[BytesSources, BytesSources]:
                 seed=cfg.seed,
                 delimiter=cfg.delimiter,
             )
+
+            if train_text:
+                assert_no_special_collision(train_text, dataset="primer", doc_index="train", field="text")
+            if val_text:
+                assert_no_special_collision(val_text, dataset="primer", doc_index="val", field="text")
 
             if train_text:
                 current_meta = _build_primer_metadata(

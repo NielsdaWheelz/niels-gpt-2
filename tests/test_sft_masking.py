@@ -14,9 +14,9 @@ def test_sft_masking():
     Test that SFT masking correctly identifies assistant spans.
 
     Hand-construct a sequence with:
-    <|sys|> ... <|eot|> <|usr|> ... <|eot|> <|asst|> A B <|eot|>
+    SYS ... EOT  USR ... EOT  ASST A B EOT
 
-    Verify that only targets for A, B, and <|eot|> are not -100.
+    Verify that only targets for A, B, and the terminal EOT are not -100.
     """
     # Define special token IDs
     sys_id = 100
@@ -90,13 +90,14 @@ def test_sft_masking():
         # Actually, let's think about this more carefully:
         # - x = sequence[:-1]
         # - y = sequence[1:]
-        # - For masking, we want to predict tokens that come after <asst> up to and including <eot>
+        # - For masking, we want to predict tokens that come after the assistant role token
+        #   up to and including the following EOT.
 
-        # The assistant span in the sequence is: <asst> 30 31 <eot>
+        # The assistant span in the sequence is: ASST 30 31 EOT
         # In x, this appears at positions [asst_pos, asst_pos+1, asst_pos+2, asst_pos+3]
-        # In y, we're predicting [30, 31, <eot>, next_token]
+        # In y, we're predicting [30, 31, EOT, next_token]
 
-        # We want to compute loss on [30, 31] (exclude <eot> by default)
+        # We want to compute loss on [30, 31] (exclude EOT by default)
         # These are at positions [asst_pos, asst_pos+1] in y
 
         y_masked_array = y_masked[0].cpu().numpy()
@@ -117,7 +118,7 @@ def test_sft_masking():
                 f"but got {y_masked_array[pos]}"
             )
 
-        # Check that positions after assistant span (including <eot>) are -100
+        # Check that positions after assistant span (including EOT) are -100
         after_asst = asst_pos + len(asst_content)
         for pos in range(after_asst, len(y_masked_array)):
             assert y_masked_array[pos] == -100, (

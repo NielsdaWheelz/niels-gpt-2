@@ -15,12 +15,18 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+from niels_gpt.special_tokens import SPECIAL_TOKENS as PROJECT_SPECIAL_TOKENS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SEARCH_DIRS = ["niels_gpt", "train", "tools"]
 EXCLUDE_DIR_PARTS = {"tests", "venv", "__pycache__", "server", "ui"}
 ALLOWED_HYPERPARAM_FILES = {ROOT / "niels_gpt" / "settings.py"}
-ALLOW_SPECIAL_TOKEN_FILES = {ROOT / "niels_gpt" / "tokenizer.py", ROOT / "niels_gpt" / "settings.py"}
+ALLOW_SPECIAL_TOKEN_FILES = {
+    ROOT / "niels_gpt" / "tokenizer.py",
+    ROOT / "niels_gpt" / "settings.py",
+    ROOT / "niels_gpt" / "special_tokens.py",
+}
 
 DENYLIST_NAMES = {
     "base_lr",
@@ -50,7 +56,7 @@ DENYLIST_NAMES = {
     "max_new_tokens",
 }
 
-SPECIAL_TOKENS = {"<|sys|>", "<|usr|>", "<|asst|>", "<|eot|>"}
+SPECIAL_TOKENS = set(PROJECT_SPECIAL_TOKENS)
 OPT_KW = {"lr", "betas", "eps", "weight_decay"}
 
 

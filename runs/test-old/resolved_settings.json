@@ -4,7 +4,7 @@
     4,
     5
   ],
-  "generated_at_utc": "2025-12-17T22:52:07.997243+00:00",
+  "generated_at_utc": "2025-12-17T23:56:23.419048+00:00",
   "model_cfg": {
     "C": 384,
     "H": 6,
@@ -203,14 +203,21 @@
     },
     "tokenizer": {
       "byte_fallback": true,
-      "model_path": "/Users/nnandal/Documents/code/niels-gpt/artifacts/tokenizer/spm.model",
+      "expected_special_token_ids": {
+        "asst": 5,
+        "eot": 6,
+        "sys": 3,
+        "usr": 4
+      },
+      "model_path": "/Users/nnandal/Documents/code/niels-gpt/artifacts/tokenizer/v2/spm.model",
       "normalization": "nfkc",
       "special_tokens": {
-        "asst": "<|asst|>",
-        "eot": "<|eot|>",
-        "sys": "<|sys|>",
-        "usr": "<|usr|>"
+        "asst": "<|ngpt_asst_84a5023f67d74cf29cc4001becde983c|>",
+        "eot": "<|ngpt_eot_84a5023f67d74cf29cc4001becde983c|>",
+        "sys": "<|ngpt_sys_84a5023f67d74cf29cc4001becde983c|>",
+        "usr": "<|ngpt_usr_84a5023f67d74cf29cc4001becde983c|>"
       },
+      "tokenizer_sha256": "a7ccda70ba310e6571295e6833dd6c340a906c5506cb1391ca0aeb7aba20c762",
       "tokenizer_type": "bpe",
       "vocab_size": 16000
     },
@@ -290,16 +297,22 @@
     "meta": {
       "bos_id": 1,
       "eos_id": 2,
+      "expected_special_token_ids": {
+        "asst": 5,
+        "eot": 6,
+        "sys": 3,
+        "usr": 4
+      },
       "pad_id": -1,
       "unk_id": 0
     },
-    "model_path": "/Users/nnandal/Documents/code/niels-gpt/artifacts/tokenizer/spm.model",
-    "sha256": "b147a99b304c145680fb8f17dce819b025f066e7a63bb6a0654cddda3d152af2",
+    "model_path": "/Users/nnandal/Documents/code/niels-gpt/artifacts/tokenizer/v2/spm.model",
+    "sha256": "a7ccda70ba310e6571295e6833dd6c340a906c5506cb1391ca0aeb7aba20c762",
     "special_tokens": {
-      "asst": "<|asst|>",
-      "eot": "<|eot|>",
-      "sys": "<|sys|>",
-      "usr": "<|usr|>"
+      "asst": "<|ngpt_asst_84a5023f67d74cf29cc4001becde983c|>",
+      "eot": "<|ngpt_eot_84a5023f67d74cf29cc4001becde983c|>",
+      "sys": "<|ngpt_sys_84a5023f67d74cf29cc4001becde983c|>",
+      "usr": "<|ngpt_usr_84a5023f67d74cf29cc4001becde983c|>"
     }
   },
   "train_cfg": {

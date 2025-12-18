@@ -16,7 +16,7 @@ from niels_gpt.data.oasst1 import iter_oasst1_sft
 from niels_gpt.data.roam import list_roam_paths, load_texts
 from niels_gpt.data.wikitext import iter_wikitext
 from niels_gpt.paths import REPO_ROOT, ROAM_DIR
-from niels_gpt.tokenizer import load_tokenizer
+from niels_gpt.tokenizer import DEFAULT_TOKENIZER_PATH, load_tokenizer
 
 from .build_cache import build_pretrain_cache, build_sft_cache
 from .formats import DEFAULT_SHARD_BYTES, TOKEN_DTYPE
@@ -31,7 +31,8 @@ DEFAULT_SHUFFLE_BUFFER = 10_000
 
 
 def _ensure_tokenizer(cache_dir: Path):
-    tokenizer_model_path = REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"
+    tokenizer_model_path = DEFAULT_TOKENIZER_PATH
+    tokenizer_meta_path = tokenizer_model_path.with_name("tokenizer_meta.json")
     if not tokenizer_model_path.exists():
         print(f"error: tokenizer not found at {tokenizer_model_path}")
         print("run tokenizer training first (PR-01)")
@@ -40,14 +41,25 @@ def _ensure_tokenizer(cache_dir: Path):
     tokenizer_cache_dir = cache_dir / "tokenizer"
     tokenizer_cache_dir.mkdir(parents=True, exist_ok=True)
     cached_model = tokenizer_cache_dir / "spm.model"
+    cached_meta = tokenizer_cache_dir / "tokenizer_meta.json"
     if not cached_model.exists():
         shutil.copy2(tokenizer_model_path, cached_model)
+    if tokenizer_meta_path.exists() and not cached_meta.exists():
+        shutil.copy2(tokenizer_meta_path, cached_meta)
 
-    tokenizer = load_tokenizer(str(cached_model))
+    expected_ids = None
+    if tokenizer_meta_path.exists():
+        try:
+            meta = read_meta(str(tokenizer_meta_path))
+            expected_ids = meta.get("special_tokens") or meta.get("special_token_ids")
+        except Exception:
+            expected_ids = None
+
+    tokenizer = load_tokenizer(str(cached_model), expected_special_token_ids=expected_ids)
     meta = {
         "dataset_name": "tokenizer",
         "dataset_config": None,
-        "split_rule": "copy of artifacts/tokenizer",
+        "split_rule": "copy of artifacts/tokenizer/v2",
         "tokenizer_sha256": sha256_file(str(tokenizer_model_path)),
         "vocab_size": tokenizer.vocab_size,
         "special_token_ids": tokenizer.special_token_ids(),
@@ -206,10 +218,10 @@ def build_all(
                 max_val_tokens=val_tokens,
                 shard_bytes=shard_bytes,
                 seed=seed,
-            shuffle_buffer=None,
-            source_name="roam",
-            source_config=None,
-            streaming=False,
+                shuffle_buffer=None,
+                source_name="roam",
+                source_config=None,
+                streaming=False,
             )
             _update_meta(
                 roam_cache_dir / "meta.json",
@@ -303,6 +315,7 @@ def build_all(
             tokenizer=tokenizer,
             val_frac=DEFAULT_SFT_VAL_FRAC,
             seed=seed,
+            source_name="databricks/databricks-dolly-15k",
         )
         _update_meta(
             dolly_dir / "meta.json",
@@ -331,6 +344,7 @@ def build_all(
             tokenizer=tokenizer,
             val_frac=DEFAULT_SFT_VAL_FRAC,
             seed=seed,
+            source_name="OpenAssistant/oasst1",
         )
         _update_meta(
             oasst_dir / "meta.json",

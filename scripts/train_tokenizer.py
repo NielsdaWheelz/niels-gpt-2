@@ -8,7 +8,7 @@ Usage:
         --input_glob ".roam-data/**/*.md" \
         --include_wikitext \
         --fineweb_bytes 20000000 \
-        --out_dir artifacts/tokenizer \
+        --out_dir artifacts/tokenizer/v2 \
         --vocab_size 16000 \
         --seed 42
 """
@@ -25,9 +25,9 @@ from typing import Iterable
 
 import sentencepiece as spm
 
-from niels_gpt.tokenizer import SPECIAL_TOKENS
+from niels_gpt.special_tokens import SPECIAL_TOKEN_NAMES, SPECIAL_TOKENS
 
-DEFAULT_OUT_DIR = "artifacts/tokenizer"
+DEFAULT_OUT_DIR = "artifacts/tokenizer/v2"
 DEFAULT_VOCAB_SIZE = 16000
 DEFAULT_SEED = 42
 DEFAULT_MODEL_TYPE = "unigram"
@@ -190,8 +190,8 @@ def validate_special_tokens(model_path: Path) -> dict[str, int]:
     if unk_piece_id != sp.unk_id():
         raise ValueError(f"<unk> piece/id mismatch: piece_to_id={unk_piece_id}, unk_id={sp.unk_id()}")
 
-    token_ids = {}
-    for token in SPECIAL_TOKENS:
+    token_ids: dict[str, int] = {}
+    for name, token in zip(SPECIAL_TOKEN_NAMES, SPECIAL_TOKENS, strict=True):
         piece_id = sp.piece_to_id(token)
         if piece_id == sp.unk_id():
             raise ValueError(
@@ -210,8 +210,7 @@ def validate_special_tokens(model_path: Path) -> dict[str, int]:
                 f"Special token '{token}' decode mismatch: id {piece_id} -> '{decoded}'"
             )
 
-        key = token.strip("<|>")
-        token_ids[key] = piece_id
+        token_ids[name] = piece_id
 
     # Verify all IDs are distinct and in range
     if len(set(token_ids.values())) != len(SPECIAL_TOKENS):

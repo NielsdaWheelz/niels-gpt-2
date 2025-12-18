@@ -8,7 +8,7 @@ from train.pretrain import _load_source as load_pretrain_source
 from train.sft import _load_sft_source as load_sft_source
 
 
-def _write_pretrain_cache(tmp: Path, name: str, tokenizer_sha: str) -> Path:
+def _write_pretrain_cache(tmp: Path, name: str, tokenizer_sha: str, special: dict[str, int]) -> Path:
     bin_path = tmp / f"{name}_train.bin"
     meta_path = tmp / f"{name}_train.meta.json"
     arr = np.asarray([1, 2, 3, 4], dtype="<u2")
@@ -16,6 +16,7 @@ def _write_pretrain_cache(tmp: Path, name: str, tokenizer_sha: str) -> Path:
     meta = {
         "tokenizer_sha256": tokenizer_sha,
         "token_dtype": "uint16-le",
+        "special_token_ids": special,
     }
     meta_path.write_text(json.dumps(meta))
     return bin_path
@@ -39,9 +40,17 @@ def _write_sft_cache(tmp: Path, name: str, tokenizer_sha: str, special: dict[str
 
 
 def test_pretrain_cache_hash_mismatch(tmp_path: Path):
-    _write_pretrain_cache(tmp_path, "wiki", "abc")
+    special = {"sys": 1, "usr": 2, "asst": 3, "eot": 4}
+    _write_pretrain_cache(tmp_path, "wiki", "abc", special)
     with pytest.raises(ValueError, match="tokenizer hash mismatch"):
-        load_pretrain_source(tmp_path, "wiki", "train", T=2, expected_tokenizer_sha="def")
+        load_pretrain_source(
+            tmp_path,
+            "wiki",
+            "train",
+            T=2,
+            expected_tokenizer_sha="def",
+            expected_special_token_ids=special,
+        )
 
 
 def test_sft_cache_hash_mismatch(tmp_path: Path):
@@ -57,5 +66,6 @@ def test_sft_cache_hash_mismatch(tmp_path: Path):
             assistant_only_loss=True,
             include_eot_in_loss=False,
             expected_tokenizer_sha="def",
+            expected_special_token_ids=special,
         )
 

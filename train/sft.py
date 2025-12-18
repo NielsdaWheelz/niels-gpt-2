@@ -32,14 +32,16 @@ from train.pretrain import (
     _load_meta,
     _parameter_groups,
     _resolve_resume_path,
-    _load_source as _load_stream_source,
+    _load_source_sharded,
 )
 
 
 def _expected_sft_paths(cache_dir: Path, source: str, split: str) -> tuple[Path, Path, Path]:
-    tokens = cache_dir / f"{source}_{split}.bin"
-    idx = cache_dir / f"{source}_{split}.idx.npy"
-    meta = cache_dir / f"{source}_{split}.meta.json"
+    """Get paths for new SFT cache format: cache_dir/source/{split}_tokens.bin"""
+    source_dir = cache_dir / source
+    tokens = source_dir / f"{split}_tokens.bin"
+    idx = source_dir / f"{split}_idx.npy"
+    meta = source_dir / "meta.json"
     return tokens, idx, meta
 
 
@@ -53,6 +55,7 @@ def _load_sft_source(
     assistant_only_loss: bool,
     include_eot_in_loss: bool,
     expected_tokenizer_sha: str | None,
+    expected_special_token_ids: dict[str, int] | None,
 ) -> SFTExampleDataset:
     tokens_path, idx_path, meta_path = _expected_sft_paths(cache_dir, source, split)
     meta = _load_meta(meta_path)
@@ -66,6 +69,11 @@ def _load_sft_source(
     eot_id = special_ids.get("eot")
     if eot_id is None or asst_id is None:
         raise ValueError(f"meta for {source}_{split} missing special_token_ids.asst/eot")
+    if expected_special_token_ids and special_ids != expected_special_token_ids:
+        raise ValueError(
+            f"special token ids mismatch for {source}/{split}: cache has {special_ids}, "
+            f"expected {expected_special_token_ids}"
+        )
     if not idx_path.exists():
         # fall back to a single-example offset covering the whole tokens file
         tokens_mem = np.memmap(tokens_path, dtype=np.uint16, mode="r")
@@ -96,6 +104,7 @@ def _load_sft_sources(
     assistant_only_loss: bool,
     include_eot_in_loss: bool,
     expected_tokenizer_sha: str | None,
+    expected_special_token_ids: dict[str, int] | None,
 ) -> dict[str, SFTExampleDataset]:
     missing: list[str] = []
     for src in source_names:
@@ -108,7 +117,7 @@ def _load_sft_sources(
         raise FileNotFoundError(
             "missing SFT cache files:\n  "
             + "\n  ".join(sorted(missing))
-            + "\nexpected naming: data/cache/sft/{source}_{split}.bin + .meta.json (+ optional .idx.npy)"
+            + "\nexpected format: data/cache/sft/{source}/meta.json and {source}/{split}_tokens.bin + {split}_idx.npy"
         )
 
     datasets: dict[str, SFTExampleDataset] = {}
@@ -128,6 +137,7 @@ def _load_sft_sources(
             assistant_only_loss=assistant_only_loss,
             include_eot_in_loss=include_eot_in_loss,
             expected_tokenizer_sha=expected_tokenizer_sha,
+            expected_special_token_ids=expected_special_token_ids,
         )
     return datasets
 
@@ -159,9 +169,20 @@ class SFTMixture:
         return torch.stack(xs, dim=0), torch.stack(y_masked_list, dim=0)
 
 
-def _load_wiki_val(cache_dir: Path, *, T: int, expected_tokenizer_sha: str | None) -> PretrainSource:
-    return _load_stream_source(
-        cache_dir, "wiki", "val", T=T, expected_tokenizer_sha=expected_tokenizer_sha
+def _load_wikitext_val(
+    cache_dir: Path,
+    *,
+    T: int,
+    expected_tokenizer_sha: str | None,
+    expected_special_token_ids: dict[str, int] | None,
+) -> PretrainSource:
+    return _load_source_sharded(
+        cache_dir,
+        "wikitext",
+        "val",
+        T=T,
+        expected_tokenizer_sha=expected_tokenizer_sha,
+        expected_special_token_ids=expected_special_token_ids,
     )
 
 
@@ -230,11 +251,12 @@ def run_sft(
         assistant_only_loss=job.sft_format["assistant_only_loss"],
         include_eot_in_loss=job.sft_format["include_eot_in_loss"],
         expected_tokenizer_sha=job.tokenizer_sha256,
+        expected_special_token_ids=job.special_token_ids,
     )
     mixture = SFTMixture(sft_train, source_probs)
 
     val_sft = None
-    wiki_val_source = None
+    wikitext_val_source = None
     if val_source_choice == "sft":
         val_sft = _load_sft_sources(
             cache_dir,
@@ -246,11 +268,15 @@ def run_sft(
             assistant_only_loss=job.sft_format["assistant_only_loss"],
             include_eot_in_loss=job.sft_format["include_eot_in_loss"],
             expected_tokenizer_sha=job.tokenizer_sha256,
+            expected_special_token_ids=job.special_token_ids,
         )
         val_mixture = SFTMixture(val_sft, {k: v / sum(source_probs.values()) for k, v in source_probs.items()})
     else:
-        wiki_val_source = _load_wiki_val(
-            streams_cache_dir, T=model_cfg.T, expected_tokenizer_sha=job.tokenizer_sha256
+        wikitext_val_source = _load_wikitext_val(
+            streams_cache_dir,
+            T=model_cfg.T,
+            expected_tokenizer_sha=job.tokenizer_sha256,
+            expected_special_token_ids=job.special_token_ids,
         )
 
     resume_ckpt = _resolve_resume_path(resume_path, no_auto_resume=no_auto_resume, phase="sft")
@@ -376,7 +402,7 @@ def run_sft(
                     xs = []
                     ys = []
                     for _ in range(eval_B):
-                        x_single, y_single = wiki_val_source.sample(device=device, generator=eval_gen)
+                        x_single, y_single = wikitext_val_source.sample(device=device, generator=eval_gen)
                         xs.append(x_single)
                         ys.append(y_single)
                     return torch.stack(xs, dim=0), torch.stack(ys, dim=0)

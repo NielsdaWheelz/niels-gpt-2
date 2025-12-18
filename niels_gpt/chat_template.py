@@ -18,16 +18,16 @@ def format_chat(
     Format a complete conversation with all messages as completed turns.
 
     Each message becomes:
-    - <|sys|> {content} <|eot|> for system
-    - <|usr|> {content} <|eot|> for user
-    - <|asst|> {content} <|eot|> for assistant
+    - SYS_TOKEN {content} EOT for system
+    - USR_TOKEN {content} EOT for user
+    - ASST_TOKEN {content} EOT for assistant
 
     Args:
         tok: Tokenizer instance
         messages: List of messages with role and content
 
     Returns:
-        Token IDs for the full conversation with <|eot|> after each message
+        Token IDs for the full conversation with EOT after each message
     """
     special = tok.special_token_ids()
     result = []
@@ -62,15 +62,15 @@ def format_prompt(
     """
     Format messages for generation.
 
-    - All prior messages are included as completed turns (each ends with <|eot|>)
-    - Appends <|asst|> only at the end (no <|eot|>) so the model continues as assistant
+    - All prior messages are included as completed turns (each ends with EOT)
+    - Appends ASST_TOKEN only at the end (no EOT) so the model continues as assistant
 
     Args:
         tok: Tokenizer instance
         messages: List of messages with role and content
 
     Returns:
-        Token IDs ending with <|asst|> (no trailing <|eot|>)
+        Token IDs ending with ASST_TOKEN (no trailing EOT)
     """
     special = tok.special_token_ids()
     result = []
@@ -110,10 +110,10 @@ def extract_assistant_reply(
     Extract the assistant reply tokens from generated output.
 
     Given full generated token ids (including prompt):
-    - Find the last <|asst|> token
-    - Return tokens after that <|asst|>
-    - Up to (but not including) the first <|eot|> after that
-    - If no <|eot|> exists after the last <|asst|>, return tokens to end
+    - Find the last assistant role token
+    - Return tokens after that role token
+    - Up to (but not including) the first EOT after that
+    - If no EOT exists after the last assistant token, return tokens to end
 
     Args:
         tok: Tokenizer instance
@@ -126,7 +126,7 @@ def extract_assistant_reply(
     asst_id = special["asst"]
     eot_id = special["eot"]
 
-    # Find the last occurrence of <|asst|>
+    # Find the last occurrence of the assistant token
     last_asst_idx = -1
     for i in range(len(generated_ids) - 1, -1, -1):
         if generated_ids[i] == asst_id:
@@ -137,10 +137,10 @@ def extract_assistant_reply(
         # No assistant token found, return empty
         return []
 
-    # Start after the <|asst|> token
+    # Start after the assistant token
     start_idx = last_asst_idx + 1
 
-    # Find the first <|eot|> after the assistant token
+    # Find the first EOT after the assistant token
     end_idx = len(generated_ids)
     for i in range(start_idx, len(generated_ids)):
         if generated_ids[i] == eot_id:

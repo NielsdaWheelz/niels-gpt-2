@@ -8,8 +8,7 @@ from pathlib import Path
 
 from niels_gpt.cache.build_cache import build_pretrain_cache, build_sft_cache
 from niels_gpt.cache.meta import sha256_file
-from niels_gpt.paths import REPO_ROOT
-from niels_gpt.tokenizer import load_tokenizer
+from niels_gpt.tokenizer import DEFAULT_TOKENIZER_PATH, load_tokenizer
 
 
 def _hash_dir(path: Path) -> dict[str, str]:
@@ -24,7 +23,7 @@ def _hash_dir(path: Path) -> dict[str, str]:
 
 
 def test_cache_build_determinism():
-    tokenizer = load_tokenizer(str(REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"))
+    tokenizer = load_tokenizer(str(DEFAULT_TOKENIZER_PATH))
 
     texts = ["alpha", "beta", "gamma", "delta"]
     examples = [

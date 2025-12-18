@@ -10,6 +10,7 @@ from train.checkpointing import load_checkpoint
 import niels_gpt.paths as ng_paths
 from niels_gpt.cache.sft_dataset import SFTExampleDataset
 from niels_gpt.cache.meta import sha256_file
+from niels_gpt.tokenizer import DEFAULT_TOKENIZER_PATH, load_tokenizer
 
 
 def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) -> None:
@@ -19,12 +20,14 @@ def _write_stream_cache(base: Path, source: str, split: str, tokens: list[int]) 
     arr = np.asarray(tokens, dtype="<u2")
     with open(bin_path, "wb") as f:
         f.write(arr.tobytes())
-    tokenizer_sha = sha256_file(str(ng_paths.REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"))
+    tokenizer_sha = sha256_file(str(DEFAULT_TOKENIZER_PATH))
+    special_ids = load_tokenizer(str(DEFAULT_TOKENIZER_PATH)).special_token_ids()
     meta = {
         "token_dtype": "uint16-le",
         "source": source,
         "split": split,
         "tokenizer_sha256": tokenizer_sha,
+        "special_token_ids": special_ids,
     }
     meta_path.write_text(json_dumps(meta))
 
@@ -45,7 +48,7 @@ def _write_sft_cache(base: Path, source: str, split: str, sequences: list[list[i
             pos += len(seq)
 
     np.save(idx_path, np.asarray(offsets, dtype=np.int64))
-    tokenizer_sha = sha256_file(str(ng_paths.REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"))
+    tokenizer_sha = sha256_file(str(DEFAULT_TOKENIZER_PATH))
     meta = {
         "token_dtype": "uint16-le",
         "special_token_ids": special,
@@ -213,8 +216,19 @@ def test_sft_masking_smoke():
         ckpt_dir = tmp_path / "ckpts"
         orig_ckpt = _patch_checkpoints(ckpt_dir)
         try:
-            special = {"sys": 1, "usr": 2, "asst": 3, "eot": 4}
-            seq = [1, 10, 4, 2, 11, 4, 3, 20, 21, 4]
+            special = {"sys": 3, "usr": 4, "asst": 5, "eot": 6}
+            seq = [
+                special["sys"],
+                10,
+                special["eot"],
+                special["usr"],
+                11,
+                special["eot"],
+                special["asst"],
+                20,
+                21,
+                special["eot"],
+            ]
             _write_sft_cache(sft_dir, "dolly", "train", [seq], special)
             _write_sft_cache(sft_dir, "dolly", "val", [seq], special)
 

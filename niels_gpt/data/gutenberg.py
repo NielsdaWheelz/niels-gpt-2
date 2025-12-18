@@ -1,6 +1,7 @@
 from typing import Iterator, Optional
 from datasets import load_dataset
 from niels_gpt.settings import default_settings
+from niels_gpt.special_tokens import assert_no_special_collision
 from .types import PretrainSample
 
 
@@ -58,6 +59,8 @@ def iter_gutenberg(
             break
 
         text = _select_text_field(sample)
+
+        assert_no_special_collision(text, dataset="gutenberg", doc_index=count, field="text")
 
         # Keep raw metadata from source (unfiltered)
         yield PretrainSample(

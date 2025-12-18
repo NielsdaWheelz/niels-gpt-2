@@ -214,7 +214,7 @@ def generate_text(
     output_ids = generate_ids(
         model,
         prompt_ids,
-        max_new_tokens=max_new_tokens,
+        max_new_tokens=generation.max_new_tokens,
         T=cfg.T,
         temperature=generation.temperature,
         top_k=generation.top_k,

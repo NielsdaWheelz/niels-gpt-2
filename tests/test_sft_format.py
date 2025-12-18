@@ -1,4 +1,5 @@
 import torch
+import pytest
 
 from niels_gpt.format.sft import (
     SFTFormatError,
@@ -7,6 +8,7 @@ from niels_gpt.format.sft import (
     serialize_chat_to_ids,
     sft_loss_mask_for_ids,
 )
+from niels_gpt.special_tokens import ASST_TOKEN, EOT_TOKEN, SYS_TOKEN, USR_TOKEN
 
 
 class FakeTokenizer:
@@ -15,10 +17,10 @@ class FakeTokenizer:
         self._next_id = 10
         self._vocab: dict[str, int] = {}
         self._special_strings = {
-            "<|sys|>": self.specials["sys"],
-            "<|usr|>": self.specials["usr"],
-            "<|asst|>": self.specials["asst"],
-            "<|eot|>": self.specials["eot"],
+            SYS_TOKEN: self.specials["sys"],
+            USR_TOKEN: self.specials["usr"],
+            ASST_TOKEN: self.specials["asst"],
+            EOT_TOKEN: self.specials["eot"],
         }
 
     def special_token_ids(self):
@@ -92,15 +94,15 @@ def test_mask_marks_only_assistant_tokens():
     asst_content = tok.encode("answer ok")
 
     expected_mask = (
-        [False]  # <|sys|>
+        [False]  # sys token
         + [False] * len(sys_content)
-        + [False]  # sys <|eot|>
-        + [False]  # <|usr|>
+        + [False]  # sys eot
+        + [False]  # usr token
         + [False] * len(user_content)
-        + [False]  # user <|eot|>
-        + [False]  # <|asst|>
+        + [False]  # usr eot
+        + [False]  # asst token
         + [True] * len(asst_content)
-        + [False]  # assistant <|eot|> excluded from loss
+        + [False]  # assistant eot excluded from loss
     )
 
     assert mask == expected_mask
@@ -347,8 +349,7 @@ def test_role_normalization_and_error_context():
 
 def test_content_with_literal_special_tokens_is_escaped():
     tok = FakeTokenizer()
-    specials = tok.special_token_ids()
-    content = "please do not emit <|usr|> or <|asst|> in replies"
+    content = f"please do not emit {USR_TOKEN} or {ASST_TOKEN} in replies"
     ex = {
         "messages": [
             {"role": "system", "content": ""},
@@ -356,30 +357,7 @@ def test_content_with_literal_special_tokens_is_escaped():
             {"role": "assistant", "content": "ok"},
         ]
     }
-    ids = serialize_chat_to_ids(ex, tokenizer=tok, default_system_text="")
-
-    # only structural occurrences of usr_id: role token and nothing from content
-    assert ids.count(specials["usr"]) == 1
-    # ensure packing still works and keeps structure
-    mask = sft_loss_mask_for_ids(
-        ids,
-        sys_id=specials["sys"],
-        usr_id=specials["usr"],
-        asst_id=specials["asst"],
-        eot_id=specials["eot"],
-    )
-    S = len(ids)
-    packed_ids, packed_mask = pack_sft_ids_and_mask(
-        ids,
-        mask,
-        S=S,
-        sys_id=specials["sys"],
-        usr_id=specials["usr"],
-        asst_id=specials["asst"],
-        eot_id=specials["eot"],
-        pad_id=specials["eot"],
-    )
-    assert packed_ids == ids
-    assert packed_mask == mask
+    with pytest.raises(ValueError, match="special token literal detected"):
+        serialize_chat_to_ids(ex, tokenizer=tok, default_system_text="")
 
 

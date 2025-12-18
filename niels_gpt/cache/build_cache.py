@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from niels_gpt.chat_template import format_chat
-from niels_gpt.tokenizer import SPECIAL_TOKENS
+from niels_gpt.special_tokens import SPECIAL_TOKENS, assert_no_special_collision
 
 from .formats import TOKEN_BYTES, TOKEN_DTYPE
 from .meta import sha256_file, write_meta
@@ -36,6 +36,7 @@ def _tokenizer_meta(tokenizer) -> dict:
             "asst": special["asst"],
             "eot": special["eot"],
         },
+        "expected_special_token_ids": getattr(tokenizer, "_expected_special_token_ids", None),
     }
 
 
@@ -135,13 +136,17 @@ def build_pretrain_cache(
     train_tokens = 0
     val_tokens = 0
 
-    special_strings = getattr(tokenizer, "special_tokens", None) or SPECIAL_TOKENS
+    special_strings = tuple(getattr(tokenizer, "special_tokens", None) or SPECIAL_TOKENS)
+    dataset_label = source_name or "unknown"
 
-    for text in text_iter:
-        if any(special in text for special in special_strings):
-            raise ValueError(
-                f"found special token string in raw text: {text[:128]!r}... contains one of {special_strings}"
-            )
+    for doc_idx, text in enumerate(text_iter):
+        assert_no_special_collision(
+            text,
+            dataset=dataset_label,
+            doc_index=doc_idx,
+            field="text",
+            specials=special_strings,
+        )
 
         tokens = tokenizer.encode(text)
         if not tokens:
@@ -195,6 +200,7 @@ def build_sft_cache(
     tokenizer,
     val_frac: float,
     seed: int,
+    source_name: str | None = None,
 ) -> None:
     """
     writes:
@@ -227,27 +233,33 @@ def build_sft_cache(
     val_tokens_path = out_path / "val_tokens.bin"
 
     specials_set = set(tokenizer.special_token_ids().values())
-    special_strings = getattr(tokenizer, "special_tokens", None) or SPECIAL_TOKENS
+    special_strings = tuple(getattr(tokenizer, "special_tokens", None) or SPECIAL_TOKENS)
+    dataset_label = source_name or "unknown"
 
     with open(train_tokens_path, "wb") as train_f, open(val_tokens_path, "wb") as val_f:
         for idx, messages in enumerate(all_examples):
-            malformed = False
             seq_chunks: list[int] = []
 
-            for msg in messages:
+            for msg_idx, msg in enumerate(messages):
                 role = msg["role"]
                 content = msg["content"]
-                if any(tok_str in content for tok_str in special_strings):
-                    malformed = True
-                    break
+                assert_no_special_collision(
+                    content,
+                    dataset=dataset_label,
+                    doc_index=idx,
+                    field=f"{role}[{msg_idx}]",
+                    specials=special_strings,
+                )
                 content_ids = tokenizer.encode(content)
                 if any(t in specials_set for t in content_ids):
-                    malformed = True
-                    break
+                    raise ValueError(
+                        "encoded content contains special token id: "
+                        f"dataset={dataset_label}, doc_index={idx}, field={role}[{msg_idx}]"
+                    )
 
                 seq_chunks.extend(format_chat(tokenizer, [msg]))
 
-            if malformed or not seq_chunks:
+            if not seq_chunks:
                 dropped_malformed += 1
                 continue
 

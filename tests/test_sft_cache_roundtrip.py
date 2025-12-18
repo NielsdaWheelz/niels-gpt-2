@@ -11,8 +11,7 @@ import torch
 from niels_gpt.cache.build_cache import build_sft_cache
 from niels_gpt.cache.meta import read_meta
 from niels_gpt.chat_template import format_chat
-from niels_gpt.paths import REPO_ROOT
-from niels_gpt.tokenizer import load_tokenizer
+from niels_gpt.tokenizer import DEFAULT_TOKENIZER_PATH, load_tokenizer
 
 
 def _expected_splits(num_examples: int, val_frac: float, seed: int) -> tuple[set[int], set[int]]:
@@ -43,7 +42,7 @@ def _load_sequences(tokens_path: Path, idx_path: Path) -> list[list[int]]:
 
 
 def test_sft_cache_roundtrip():
-    tok = load_tokenizer(str(REPO_ROOT / "artifacts" / "tokenizer" / "spm.model"))
+    tok = load_tokenizer(str(DEFAULT_TOKENIZER_PATH))
 
     examples = [
         [

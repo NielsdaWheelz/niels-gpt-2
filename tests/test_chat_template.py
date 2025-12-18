@@ -68,7 +68,7 @@ def trained_tokenizer(tiny_corpus_dir: Path, tmp_path: Path) -> SentencePieceTok
 
 
 def test_format_chat_contains_eot_after_each_message(trained_tokenizer: SentencePieceTokenizer):
-    """format_chat should include <|eot|> after every message."""
+    """format_chat should include the EOT sentinel after every message."""
     messages: list[Message] = [
         {"role": "system", "content": "You are helpful"},
         {"role": "user", "content": "Hello"},
@@ -84,7 +84,7 @@ def test_format_chat_contains_eot_after_each_message(trained_tokenizer: Sentence
 
 
 def test_format_prompt_ends_with_asst_no_eot(trained_tokenizer: SentencePieceTokenizer):
-    """format_prompt should end with <|asst|> and no trailing <|eot|>."""
+    """format_prompt should end with the assistant sentinel and no trailing EOT."""
     messages: list[Message] = [
         {"role": "system", "content": "You are helpful"},
         {"role": "user", "content": "Hello"},
@@ -93,11 +93,11 @@ def test_format_prompt_ends_with_asst_no_eot(trained_tokenizer: SentencePieceTok
     result = format_prompt(trained_tokenizer, messages)
     special = trained_tokenizer.special_token_ids()
 
-    # Last token should be <|asst|>
-    assert result[-1] == special["asst"], "Last token should be <|asst|>"
+    # Last token should be assistant sentinel
+    assert result[-1] == special["asst"], "Last token should be assistant sentinel"
 
-    # Second-to-last should be <|eot|> (from the user message)
-    assert result[-2] == special["eot"], "Second-to-last should be <|eot|> from user message"
+    # Second-to-last should be EOT (from the user message)
+    assert result[-2] == special["eot"], "Second-to-last should be EOT from user message"
 
 
 def test_format_prompt_structure(trained_tokenizer: SentencePieceTokenizer):
@@ -109,22 +109,22 @@ def test_format_prompt_structure(trained_tokenizer: SentencePieceTokenizer):
     result = format_prompt(trained_tokenizer, messages)
     special = trained_tokenizer.special_token_ids()
 
-    # Should start with <|usr|>
+    # Should start with user sentinel
     assert result[0] == special["usr"]
 
-    # Should end with <|asst|>
+    # Should end with assistant sentinel
     assert result[-1] == special["asst"]
 
-    # Should contain exactly one <|eot|> (from the user message)
+    # Should contain exactly one EOT (from the user message)
     eot_count = result.count(special["eot"])
     assert eot_count == 1
 
 
 def test_extract_assistant_reply_basic(trained_tokenizer: SentencePieceTokenizer):
-    """extract_assistant_reply should extract tokens between <|asst|> and <|eot|>."""
+    """extract_assistant_reply should extract tokens between assistant and EOT sentinels."""
     special = trained_tokenizer.special_token_ids()
 
-    # Create a synthetic sequence: <|usr|> content <|eot|> <|asst|> hello <|eot|> junk
+    # Create a synthetic sequence: usr content EOT asst hello EOT junk
     user_content = trained_tokenizer.encode("Hi")
     asst_content = trained_tokenizer.encode("Hello")
     junk = trained_tokenizer.encode("extra")
@@ -146,10 +146,10 @@ def test_extract_assistant_reply_basic(trained_tokenizer: SentencePieceTokenizer
 
 
 def test_extract_assistant_reply_no_eot(trained_tokenizer: SentencePieceTokenizer):
-    """extract_assistant_reply should work when <|eot|> is missing (incomplete generation)."""
+    """extract_assistant_reply should work when EOT is missing (incomplete generation)."""
     special = trained_tokenizer.special_token_ids()
 
-    # Create a synthetic sequence: <|usr|> content <|eot|> <|asst|> hello (no eot)
+    # Create a synthetic sequence: usr content EOT asst hello (no eot)
     user_content = trained_tokenizer.encode("Hi")
     asst_content = trained_tokenizer.encode("Hello")
 
@@ -157,12 +157,12 @@ def test_extract_assistant_reply_no_eot(trained_tokenizer: SentencePieceTokenize
 
     result = extract_assistant_reply(trained_tokenizer, generated)
 
-    # Should extract all tokens after <|asst|>
+    # Should extract all tokens after assistant sentinel
     assert result == asst_content
 
 
 def test_extract_assistant_reply_multiple_asst_uses_last(trained_tokenizer: SentencePieceTokenizer):
-    """extract_assistant_reply should use the LAST <|asst|> token."""
+    """extract_assistant_reply should use the LAST assistant token."""
     special = trained_tokenizer.special_token_ids()
 
     # First assistant turn
@@ -192,7 +192,7 @@ def test_extract_assistant_reply_empty_returns_empty(trained_tokenizer: Sentence
     """extract_assistant_reply should return empty list if no assistant token found."""
     special = trained_tokenizer.special_token_ids()
 
-    # Sequence with no <|asst|>
+    # Sequence with no assistant token
     generated = [special["usr"]] + trained_tokenizer.encode("Hi") + [special["eot"]]
 
     result = extract_assistant_reply(trained_tokenizer, generated)
@@ -229,7 +229,7 @@ def test_format_prompt_then_extract(trained_tokenizer: SentencePieceTokenizer):
     prompt = format_prompt(trained_tokenizer, messages)
     special = trained_tokenizer.special_token_ids()
 
-    # Simulate generation: add some tokens and end with <|eot|>
+    # Simulate generation: add some tokens and end with EOT
     reply_text = "The answer is 4"
     reply_tokens = trained_tokenizer.encode(reply_text)
     generated = prompt + reply_tokens + [special["eot"]]
@@ -242,7 +242,7 @@ def test_format_prompt_then_extract(trained_tokenizer: SentencePieceTokenizer):
 
 
 def test_format_prompt_empty_continuation_no_eot(trained_tokenizer: SentencePieceTokenizer):
-    """format_prompt + encode('') should not immediately produce <|eot|>."""
+    """format_prompt + encode('') should not immediately produce EOT."""
     messages: list[Message] = [
         {"role": "user", "content": "Hello"},
     ]
@@ -250,16 +250,16 @@ def test_format_prompt_empty_continuation_no_eot(trained_tokenizer: SentencePiec
     prompt_ids = format_prompt(trained_tokenizer, messages)
     special = trained_tokenizer.special_token_ids()
 
-    # Verify prompt ends with <|asst|>
-    assert prompt_ids[-1] == special["asst"], "Prompt should end with <|asst|>"
+    # Verify prompt ends with assistant sentinel
+    assert prompt_ids[-1] == special["asst"], "Prompt should end with assistant sentinel"
 
     # Encode empty string (may be [] or some tokens, but should not be [eot])
     empty_tokens = trained_tokenizer.encode("")
 
     # If empty string encodes to nothing, that's fine
-    # If it encodes to something, it must NOT be <|eot|> as the first token
+    # If it encodes to something, it must NOT be EOT as the first token
     if empty_tokens:
         assert empty_tokens[0] != special["eot"], (
-            "Empty string should not encode to <|eot|> token. "
+            "Empty string should not encode to EOT token. "
             "This would cause immediate turn termination."
         )

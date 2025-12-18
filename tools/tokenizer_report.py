@@ -3,21 +3,22 @@
 Tokenizer quality report: %unk, tokens/char, top tokens, specials frequency.
 
 Examples:
-  python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/spm.model --text-file data/primer.txt
-  python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/spm.model --wikitext --sample-bytes 5000000
-  python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/spm.model --fineweb-bytes 20000000
+  python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/v2/spm.model --text-file data/primer.txt
+  python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/v2/spm.model --wikitext --sample-bytes 5000000
+  python tools/tokenizer_report.py --tokenizer artifacts/tokenizer/v2/spm.model --fineweb-bytes 20000000
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
 import sentencepiece as spm
 
-from niels_gpt.tokenizer import SPECIAL_TOKENS
+from niels_gpt.special_tokens import SPECIAL_TOKENS
 
 
 def _iter_wikitext(sample_bytes: int | None) -> Iterable[str]:
@@ -106,6 +107,7 @@ def main() -> int:
     parser.add_argument("--fineweb-dataset", type=str, default="HuggingFaceFW/fineweb-edu")
     parser.add_argument("--fineweb-name", type=str, default="CC-MAIN-2024-10")
     parser.add_argument("--fineweb-split", type=str, default="train")
+    parser.add_argument("--fineweb-file", type=Path, help="If provided, read fineweb sample from local file (one text per line)")
     args = parser.parse_args()
 
     iters: list[Iterable[str]] = []
@@ -113,6 +115,8 @@ def main() -> int:
         iters.append(_iter_files(args.text_file))
     if args.wikitext:
         iters.append(_iter_wikitext(args.wikitext_bytes))
+    if args.fineweb_file:
+        iters.append(_iter_files([args.fineweb_file]))
     if args.fineweb_bytes and args.fineweb_bytes > 0:
         iters.append(
             _iter_fineweb(

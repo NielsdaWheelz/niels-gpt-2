@@ -102,7 +102,7 @@ def _build_sft_job(resolved: ResolvedSettings) -> SFTJobConfig:
         sft_sources=settings.data.mix_sft,
         val_source=settings.data.val_sft_source,
         cache_dir=Path(settings.data.caches.sft_token_cache),
-        streams_cache_dir=Path(settings.data.caches.streams_token_cache),
+        streams_cache_dir=Path(settings.data.caches.pretrain_token_cache),
         allow_missing_idx=settings.data.allow_missing_idx,
         eval_batches=eval_batches,
         sft_format=settings.sft_format.model_dump(),

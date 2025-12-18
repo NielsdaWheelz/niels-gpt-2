@@ -39,7 +39,7 @@ class SFTExampleDataset:
             eot_id: End-of-turn token ID
             asst_id: Assistant role token ID (needed for masking)
             assistant_only_loss: If True, only assistant spans contribute to loss
-            include_eot_in_loss: If True, include <|eot|> token in assistant loss
+        include_eot_in_loss: If True, include the EOT token in assistant loss
         """
         self.tokens_path = Path(tokens_path)
         self.idx_path = Path(idx_path)

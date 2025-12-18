@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from niels_gpt.tokenizer import SPECIAL_TOKENS, SentencePieceTokenizer, load_tokenizer
+from niels_gpt.special_tokens import SPECIAL_TOKEN_NAMES, SPECIAL_TOKENS
+from niels_gpt.tokenizer import SentencePieceTokenizer, load_tokenizer
 
 
 @pytest.fixture
@@ -190,7 +191,7 @@ def test_load_tokenizer(trained_tokenizer: SentencePieceTokenizer, tmp_path: Pat
 
 def test_special_tokens_single_piece_and_decode(trained_tokenizer: SentencePieceTokenizer):
     """Special tokens must encode to one id and decode exactly."""
-    token_map = {tok.strip("<|>"): tok for tok in SPECIAL_TOKENS}
+    token_map = dict(zip(SPECIAL_TOKEN_NAMES, SPECIAL_TOKENS))
     special_ids = trained_tokenizer.special_token_ids()
     for name, tid in special_ids.items():
         token_text = token_map[name]
@@ -201,7 +202,7 @@ def test_special_tokens_single_piece_and_decode(trained_tokenizer: SentencePiece
 
 def test_special_token_validation_rejects_multi_piece(monkeypatch, trained_tokenizer: SentencePieceTokenizer):
     """_validate_special_tokens must fail when encode produces multiple pieces."""
-    token_map = {tok.strip("<|>"): tok for tok in SPECIAL_TOKENS}
+    token_map = dict(zip(SPECIAL_TOKEN_NAMES, SPECIAL_TOKENS))
     original_encode = trained_tokenizer._sp.EncodeAsIds  # type: ignore[attr-defined]
 
     def bad_encode(text: str):

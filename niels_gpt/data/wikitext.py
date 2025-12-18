@@ -1,5 +1,6 @@
 from typing import Iterator, Optional
 from datasets import load_dataset
+from niels_gpt.special_tokens import assert_no_special_collision
 from .types import PretrainSample
 
 
@@ -43,6 +44,8 @@ def iter_wikitext(
         text = sample["text"]
         if text.strip() == "":
             continue
+
+        assert_no_special_collision(text, dataset="wikitext", doc_index=idx, field="text")
 
         yield PretrainSample(
             text=text,

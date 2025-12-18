@@ -7,7 +7,7 @@ goal: replace byte tokenizer with subword tokenizer; make stop condition token-n
 decisions locked in this PR
 	•	sentencepiece unigram
 	•	vocab size 16k
-	•	special tokens: <|sys|> <|usr|> <|asst|> <|eot|>
+	•	special tokens: <|ngpt_sys_84a5023f67d74cf29cc4001becde983c|> <|ngpt_usr_84a5023f67d74cf29cc4001becde983c|> <|ngpt_asst_84a5023f67d74cf29cc4001becde983c|> <|ngpt_eot_84a5023f67d74cf29cc4001becde983c|>
 	•	tokenizer trained on pretrain + sft text
 
 deliverables
@@ -16,12 +16,12 @@ deliverables
 	•	encode(text)->ids, decode(ids)->text
 	•	special_token_ids() returns ids for the 4 tokens
 	•	chat_template.py
-	•	format_chat_tokens(messages)->list[int] using <|sys|>...<|eot|> etc.
+	•	format_chat_tokens(messages)->list[int] using the sentinel sys/usr/asst/eot tokens
 
 tests
 	•	special tokens are single ids (encode returns one token for each)
 	•	stop token id exists and round-trips
-	•	format_chat_tokens always ends with <|asst|> (for prompting) or <|eot|> (for completed assistant turns)
+	•	format_chat_tokens always ends with the assistant sentinel (for prompting) or the eot sentinel (for completed assistant turns)
 
 ⸻
 
@@ -69,15 +69,15 @@ goal: eliminate substring hacks everywhere.
 deliverables
 	•	format/sft.py
 	•	converts each instruction/dialogue into:
-	•	<|sys|>...<|eot|><|usr|>...<|eot|><|asst|>...<|eot|>
+	•	<|ngpt_sys_84a5023f67d74cf29cc4001becde983c|>...<|ngpt_eot_84a5023f67d74cf29cc4001becde983c|><|ngpt_usr_84a5023f67d74cf29cc4001becde983c|>...<|ngpt_eot_84a5023f67d74cf29cc4001becde983c|><|ngpt_asst_84a5023f67d74cf29cc4001becde983c|>...<|ngpt_eot_84a5023f67d74cf29cc4001becde983c|>
 	•	defines masking rule for loss:
 	•	only compute loss on assistant tokens (recommended for sft), or
 	•	compute on all tokens (simpler, usually worse alignment)
 	•	format/pretrain.py
-	•	document separator token strategy (either newline text or a dedicated <|eot|>-like boundary token if you add one later)
+	•	document separator token strategy (either newline text or a dedicated eot-like boundary token if you add one later)
 
 tests
-	•	every sft example contains at least one <|asst|> ... <|eot|> span
+	•	every sft example contains at least one <|ngpt_asst_84a5023f67d74cf29cc4001becde983c|> ... <|ngpt_eot_84a5023f67d74cf29cc4001becde983c|> span
 	•	loss-mask correctness (tokens before assistant span get ignore_index)
 
 ⸻
@@ -142,7 +142,7 @@ deliverables
 	•	infer/kv_cache.py:
 	•	cached K/V per layer, append one token at a time
 	•	“prefill” vs “decode” path
-	•	generation uses <|eot|> stop id only
+	•	generation uses the EOT stop id only
 	•	wire kv-cache signals into your SSE stream (cache length, per-step stats)
 
 tests

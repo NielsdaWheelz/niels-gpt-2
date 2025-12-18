@@ -3,17 +3,16 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from niels_gpt.cache.build_cache import build_sft_cache
-from niels_gpt.cache.meta import read_meta
 from niels_gpt.tokenizer import get_default_tokenizer
+from niels_gpt.special_tokens import ASST_TOKEN
 
 
 def test_malformed_examples_are_dropped():
     tok = get_default_tokenizer()
-    special = tok.special_token_ids()
-
-    # content containing a special token id should be dropped
-    bad_content = "<|asst|> sneaky"
+    bad_content = f"{ASST_TOKEN} sneaky"
 
     examples = [
         [{"role": "user", "content": "ok"}, {"role": "assistant", "content": "fine"}],
@@ -22,15 +21,11 @@ def test_malformed_examples_are_dropped():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_dir = Path(tmpdir)
-        build_sft_cache(
-            examples,
-            str(out_dir),
-            tokenizer=tok,
-            val_frac=0.5,
-            seed=123,
-        )
-
-        meta = read_meta(str(out_dir / "meta.json"))
-        assert meta["dropped_malformed_examples"] == 1
-        assert meta["train_examples"] + meta["val_examples"] == 1
-
+        with pytest.raises(ValueError, match="special token literal"):
+            build_sft_cache(
+                examples,
+                str(out_dir),
+                tokenizer=tok,
+                val_frac=0.5,
+                seed=123,
+            )

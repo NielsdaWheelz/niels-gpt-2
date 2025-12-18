@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import niels_gpt.paths as paths
 from niels_gpt.config import ModelConfig, TrainConfig
+from niels_gpt.special_tokens import SPECIAL_TOKENS
 
 
 # ----------------------------- helper utilities ----------------------------- #
@@ -62,10 +63,10 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 class SpecialTokens(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sys: str = "<|sys|>"
-    usr: str = "<|usr|>"
-    asst: str = "<|asst|>"
-    eot: str = "<|eot|>"
+    sys: str = SPECIAL_TOKENS[0]
+    usr: str = SPECIAL_TOKENS[1]
+    asst: str = SPECIAL_TOKENS[2]
+    eot: str = SPECIAL_TOKENS[3]
 
     def as_list(self) -> list[str]:
         return [self.sys, self.usr, self.asst, self.eot]
@@ -75,11 +76,24 @@ class TokenizerSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tokenizer_type: Literal["bpe", "unigram", "byte"] = "bpe"
-    model_path: str = str(paths.REPO_ROOT / "artifacts" / "tokenizer" / "spm.model")
+    model_path: str = str(paths.REPO_ROOT / "artifacts" / "tokenizer" / "v2" / "spm.model")
     vocab_size: int = 16000
     normalization: Literal["none", "nfkc"] = "nfkc"
     byte_fallback: bool = True
     special_tokens: SpecialTokens = SpecialTokens()
+    tokenizer_sha256: str | None = "a7ccda70ba310e6571295e6833dd6c340a906c5506cb1391ca0aeb7aba20c762"
+    expected_special_token_ids: dict[str, int] | None = {"sys": 3, "usr": 4, "asst": 5, "eot": 6}
+
+    @model_validator(mode="after")
+    def _validate_expected_ids(self) -> "TokenizerSettings":
+        if self.expected_special_token_ids is not None:
+            expected_keys = set(self.expected_special_token_ids.keys())
+            required = {"sys", "usr", "asst", "eot"}
+            if expected_keys != required:
+                raise ValueError(
+                    f"expected_special_token_ids must contain exactly {required}, got {sorted(expected_keys)}"
+                )
+        return self
 
 
 # ----------------------------- data settings -------------------------------- #
@@ -96,7 +110,7 @@ class CacheSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     raw_cache_dir: str = str(paths.REPO_ROOT / "data" / "cache" / "hf")
-    pretrain_token_cache: str = str(paths.REPO_ROOT / "data" / "cache" / "streams")
+    pretrain_token_cache: str = str(paths.REPO_ROOT / "data" / "cache" / "pretrain")
     sft_token_cache: str = str(paths.REPO_ROOT / "data" / "cache" / "sft")
     streams_token_cache: str = str(paths.REPO_ROOT / "data" / "cache" / "streams")
 
@@ -183,11 +197,11 @@ class PrimerSettings(BaseModel):
 
 
 def _default_pretrain_mix() -> dict[str, float]:
-    return {"wiki": 0.72, "roam": 0.18, "primer": 0.10}
+    return {"fineweb_edu": 0.70, "wikitext": 0.20, "roam": 0.10}
 
 
 def _default_sft_mix() -> dict[str, float]:
-    return {"oasst1": 0.60, "dolly": 0.20, "primer": 0.20}
+    return {"oasst1": 0.67, "dolly15k": 0.33}
 
 
 class DataSettings(BaseModel):
@@ -204,8 +218,8 @@ class DataSettings(BaseModel):
     primer: PrimerSettings = PrimerSettings()
     mix_pretrain: dict[str, float] = Field(default_factory=_default_pretrain_mix)
     mix_sft: dict[str, float] = Field(default_factory=_default_sft_mix)
-    val_pretrain_source: str = "wiki"
-    val_sft_source: str = "wiki"
+    val_pretrain_source: str = "wikitext"
+    val_sft_source: str = "wikitext"
     allow_missing_idx: bool = False
 
     @model_validator(mode="after")
@@ -273,7 +287,7 @@ class TrainPhaseSettings(BaseModel):
     decay_embeddings: bool = True
 
     grad_clip: float = 1.0
-    amp: bool = True
+    amp: bool = False
     amp_dtype: Literal["fp16", "bf16"] = "fp16"
     activation_checkpointing: bool = False
 
@@ -466,8 +480,25 @@ def _looks_legacy(cfg: dict[str, Any]) -> bool:
 def _resolve_special_tokens(tokenizer_settings: TokenizerSettings) -> tuple[dict[str, int], dict[str, Any]]:
     from niels_gpt.tokenizer import SentencePieceTokenizer
 
+    settings_specials = tokenizer_settings.special_tokens.as_list()
+    if settings_specials != list(SPECIAL_TOKENS):
+        raise ValueError(
+            "tokenizer.special_tokens must match the project constants; "
+            f"got {settings_specials}, expected {list(SPECIAL_TOKENS)}"
+        )
+
+    model_path = Path(tokenizer_settings.model_path)
+    actual_sha = _sha256(model_path)
+    if tokenizer_settings.tokenizer_sha256 and actual_sha != tokenizer_settings.tokenizer_sha256:
+        raise ValueError(
+            "tokenizer_sha256 mismatch: "
+            f"settings expects {tokenizer_settings.tokenizer_sha256}, actual {actual_sha}"
+        )
+
     tok = SentencePieceTokenizer(
-        tokenizer_settings.model_path, special_tokens=tokenizer_settings.special_tokens.as_list()
+        tokenizer_settings.model_path,
+        special_tokens=settings_specials,
+        expected_special_token_ids=tokenizer_settings.expected_special_token_ids,
     )
     special_ids = tok.special_token_ids()
     meta = {
@@ -475,6 +506,7 @@ def _resolve_special_tokens(tokenizer_settings: TokenizerSettings) -> tuple[dict
         "bos_id": tok._sp.bos_id(),  # type: ignore[attr-defined]
         "eos_id": tok._sp.eos_id(),  # type: ignore[attr-defined]
         "pad_id": tok._sp.pad_id(),  # type: ignore[attr-defined]
+        "expected_special_token_ids": tokenizer_settings.expected_special_token_ids,
     }
     return special_ids, meta
 

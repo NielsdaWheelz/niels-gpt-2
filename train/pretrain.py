@@ -90,25 +90,42 @@ def _parameter_groups(
 
 
 class PretrainSource:
-    """Memory-mapped token source that samples random windows."""
+    """Memory-mapped token source that samples random windows from shards."""
 
-    def __init__(self, name: str, *, tokens: np.memmap, T: int):
+    def __init__(self, name: str, *, shards: list[np.memmap], shard_lengths: list[int], T: int):
         self.name = name
-        self.tokens = tokens
+        self.shards = shards
+        self.shard_lengths = shard_lengths
         self.T = T
-        if len(self.tokens) < T + 1:
+        self.total_tokens = sum(shard_lengths)
+
+        if self.total_tokens < T + 1:
             raise ValueError(
-                f"source {name} too short for T={T}: need >= {T+1}, got {len(self.tokens)}"
+                f"source {name} too short for T={T}: need >= {T+1}, got {self.total_tokens}"
             )
-        self._max_start = len(self.tokens) - (T + 1)
+
+        # Precompute shard sampling probabilities based on lengths
+        lengths_tensor = torch.tensor(shard_lengths, dtype=torch.float32)
+        self._shard_probs = lengths_tensor / lengths_tensor.sum()
 
     def sample(self, *, device: str, generator: torch.Generator) -> tuple[torch.Tensor, torch.Tensor]:
+        # Sample which shard to use
+        if len(self.shards) == 1:
+            shard_idx = 0
+        else:
+            shard_idx = torch.multinomial(self._shard_probs, 1, generator=generator).item()
+
+        shard = self.shards[shard_idx]
+        shard_len = self.shard_lengths[shard_idx]
+        max_start = shard_len - (self.T + 1)
+
         start_idx = (
             0
-            if self._max_start <= 0
-            else torch.randint(self._max_start + 1, (1,), generator=generator).item()
+            if max_start <= 0
+            else torch.randint(max_start + 1, (1,), generator=generator).item()
         )
-        window = self.tokens[start_idx : start_idx + self.T + 1]
+
+        window = shard[start_idx : start_idx + self.T + 1]
         window_tensor = torch.from_numpy(np.asarray(window, dtype=np.int64)).to(device)
         x = window_tensor[:-1]
         y = window_tensor[1:]
@@ -148,29 +165,71 @@ class PretrainMixture:
 
 
 def _expected_paths(cache_dir: Path, source: str, split: str) -> tuple[Path, Path]:
-    bin_path = cache_dir / f"{source}_{split}.bin"
-    meta_path = cache_dir / f"{source}_{split}.meta.json"
-    return bin_path, meta_path
+    """Get expected paths for sharded cache format."""
+    source_dir = cache_dir / source
+    split_dir = source_dir / split
+    meta_path = source_dir / "meta.json"
+    return split_dir, meta_path
 
 
-def _load_source(
+def _load_source_sharded(
     cache_dir: Path,
     source: str,
     split: str,
     *,
     T: int,
     expected_tokenizer_sha: str | None,
+    expected_special_token_ids: dict[str, int] | None,
 ) -> PretrainSource:
-    bin_path, meta_path = _expected_paths(cache_dir, source, split)
+    """Load source from sharded cache format: cache_dir/source/{train,val}/shard_*.bin"""
+    split_dir, meta_path = _expected_paths(cache_dir, source, split)
+
+    if not meta_path.exists():
+        raise FileNotFoundError(f"missing meta file: {meta_path}")
+
     meta = _load_meta(meta_path)
+
+    # Validate tokenizer hash
     if expected_tokenizer_sha and meta.get("tokenizer_sha256") not in {expected_tokenizer_sha}:
         raise ValueError(
             f"tokenizer hash mismatch for {source}/{split}: cache has {meta.get('tokenizer_sha256')}, "
             f"expected {expected_tokenizer_sha}"
         )
+
+    # Validate special token ids
+    if expected_special_token_ids:
+        meta_special = meta.get("special_token_ids")
+        if meta_special != expected_special_token_ids:
+            raise ValueError(
+                f"special token ids mismatch for {source}/{split}: cache has {meta_special}, "
+                f"expected {expected_special_token_ids}"
+            )
+
+    # Load all shards from the split directory
+    if not split_dir.exists():
+        raise FileNotFoundError(f"missing split directory: {split_dir}")
+
+    shard_files = sorted(split_dir.glob("shard_*.bin"))
+    if not shard_files:
+        raise FileNotFoundError(f"no shard files found in {split_dir}")
+
     dtype = _infer_dtype(meta)
-    tokens = np.memmap(bin_path, dtype=dtype, mode="r")
-    return PretrainSource(source, tokens=tokens, T=T)
+
+    # Keep shards as separate memmaps - don't concatenate to save memory
+    shards: list[np.memmap] = []
+    shard_lengths: list[int] = []
+
+    for shard_path in shard_files:
+        shard = np.memmap(shard_path, dtype=dtype, mode="r")
+        # Only include shards with enough tokens
+        if len(shard) >= T + 1:
+            shards.append(shard)
+            shard_lengths.append(len(shard))
+
+    if not shards:
+        raise ValueError(f"no shards in {split_dir} have enough tokens (need >= {T + 1})")
+
+    return PretrainSource(source, shards=shards, shard_lengths=shard_lengths, T=T)
 
 
 def _load_sources(
@@ -180,25 +239,33 @@ def _load_sources(
     split: str,
     T: int,
     expected_tokenizer_sha: str | None,
+    expected_special_token_ids: dict[str, int] | None,
 ) -> dict[str, PretrainSource]:
+    """Load sources from sharded cache format."""
     missing: list[str] = []
     for src in source_names:
-        bin_path, meta_path = _expected_paths(cache_dir, src, split)
-        if not bin_path.exists():
-            missing.append(str(bin_path))
+        split_dir, meta_path = _expected_paths(cache_dir, src, split)
         if not meta_path.exists():
             missing.append(str(meta_path))
+        if not split_dir.exists():
+            missing.append(str(split_dir))
+
     if missing:
         raise FileNotFoundError(
             "missing cache files:\n  "
             + "\n  ".join(sorted(missing))
-            + "\nexpected naming: data/cache/streams/{source}_{split}.bin + .meta.json"
+            + "\nexpected format: data/cache/pretrain/{source}/meta.json and {source}/{split}/shard_*.bin"
         )
 
     sources: dict[str, PretrainSource] = {}
     for src in source_names:
-        sources[src] = _load_source(
-            cache_dir, src, split, T=T, expected_tokenizer_sha=expected_tokenizer_sha
+        sources[src] = _load_source_sharded(
+            cache_dir,
+            src,
+            split,
+            T=T,
+            expected_tokenizer_sha=expected_tokenizer_sha,
+            expected_special_token_ids=expected_special_token_ids,
         )
     return sources
 
@@ -262,6 +329,7 @@ def run_pretrain(
         split="train",
         T=model_cfg.T,
         expected_tokenizer_sha=job.tokenizer_sha256,
+        expected_special_token_ids=job.special_token_ids,
     )
     val_sources = _load_sources(
         cache_dir,
@@ -269,6 +337,7 @@ def run_pretrain(
         split="val",
         T=model_cfg.T,
         expected_tokenizer_sha=job.tokenizer_sha256,
+        expected_special_token_ids=job.special_token_ids,
     )
     val_source = val_sources[val_source_name]
 

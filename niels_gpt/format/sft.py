@@ -4,7 +4,7 @@ from typing import Iterable, List, Tuple
 
 import torch
 
-from niels_gpt.tokenizer import SPECIAL_TOKENS
+from niels_gpt.special_tokens import SPECIAL_TOKENS, assert_no_special_collision
 
 
 class SFTFormatError(ValueError):
@@ -36,6 +36,7 @@ def serialize_chat_to_ids(
     """
     messages: list[dict] = ex.get("messages", [])
     example_id = ex.get("id")
+    source = ex.get("source", "unknown")
     special_ids = tokenizer.special_token_ids()
     sys_id = special_ids["sys"]
     usr_id = special_ids["usr"]
@@ -59,6 +60,10 @@ def serialize_chat_to_ids(
         system_text = default_system_text
         start_idx = 0
 
+    assert_no_special_collision(
+        system_text, dataset=source, doc_index=example_id or 0, field="system"
+    )
+
     serialized.append(sys_id)
     serialized.extend(tokenizer.encode(_escape_special_token_literals(system_text, SPECIAL_TOKENS)))
     serialized.append(eot_id)
@@ -73,6 +78,13 @@ def serialize_chat_to_ids(
         role = str(role_raw).lower()
         if role not in role_to_id:
             raise SFTFormatError(f"invalid role: {role}", example_id=example_id)
+
+        assert_no_special_collision(
+            content,
+            dataset=source,
+            doc_index=example_id or 0,
+            field=role,
+        )
 
         serialized.append(role_to_id[role])
         serialized.extend(tokenizer.encode(_escape_special_token_literals(content, SPECIAL_TOKENS)))
