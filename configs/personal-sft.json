@@ -1,0 +1,32 @@
+{
+  "model": {
+    "V": 16000,
+    "T": 512,
+    "C": 384,
+    "L": 8,
+    "H": 6,
+    "d_ff": 1152
+  },
+  "training": {
+    "sft": {
+      "micro_B": 8,
+      "accum_steps": 2,
+      "total_steps": 4000,
+      "eval_every": 200,
+      "ckpt_every": 500,
+      "base_lr": 0.00005,
+      "warmup_steps": 200,
+      "min_lr": 0.00001,
+      "amp": "auto",
+      "activation_checkpointing": false
+    }
+  },
+  "data": {
+    "mix_sft": {
+      "primer": 0.70,
+      "oasst1": 0.20,
+      "dolly15k": 0.10
+    },
+    "val_sft_source": "sft"
+  }
+}
