@@ -6,7 +6,7 @@ tiny llm-from-scratch project + a small chat primer.
 - python >= 3.11
 - uv (recommended) or pip
 - internet for first run: pulls `wikitext-103-raw-v1` via `datasets` into `~/.cache/huggingface`
-- torch wheels default to cpu; macs use mps automatically; cuda only if you pass `--device` to train (chat_cli auto-picks mps->cpu)
+- device auto-detection: cuda (NVIDIA GPU) > mps (Apple Silicon) > cpu. No manual `--device` needed.
 
 ### install (from a fresh clone)
 **with uv (recommended):**
@@ -46,16 +46,23 @@ pytest -q
 
 ### benchmark: pick overnight config without guessing
 
-**what it does:** finds the best model config + training knobs for an 8-hour run on your hardware (mps/cpu) without random OOMs or fake speed numbers.
+**what it does:** finds the best model config + training knobs for an 8-hour run on your hardware without random OOMs or fake speed numbers.
 
 **quick start:**
 ```bash
-# run the sweep (auto-detects mps if available, else cpu)
+# run the sweep (auto-detects cuda > mps > cpu, uses device-aware grid)
 python tools/bench_sweep.py --device auto
 
 # view results
 cat bench/summary.md
 ```
+
+**device-aware grids:** the benchmark automatically selects an appropriate search grid based on your hardware:
+- **CUDA <10GB** (RTX 2080, 3070, etc.): conservative grid, T=[256,512], AMP enabled
+- **CUDA 10-16GB** (RTX 3080, 4070, etc.): medium grid, T=[256,512], 2 model sizes
+- **CUDA 16GB+** (RTX 3090, 4090, A100, etc.): full grid, T=[512,1024], 3 model sizes
+- **MPS** (Apple Silicon): full grid with unified memory, AMP disabled (stability)
+- **CPU**: minimal grid for smoke testing only
 
 **what you get:**
 - `bench/results.jsonl`: all measured trials as JSON lines (machine-readable, for plotting later)
@@ -84,7 +91,7 @@ The top row tells you:
 **safety features:**
 - each trial runs in a fresh subprocess with timeout (default 20s)
 - OOM detection: catches allocation errors and moves on
-- MPS sync: timing uses `torch.mps.synchronize()` to avoid async lies
+- device sync: timing uses `torch.cuda.synchronize()` or `torch.mps.synchronize()` to avoid async lies
 - synthetic workload: no dataset/IO/tokenization noise, just model+training loop
 
 **customizing the grid:**
@@ -149,7 +156,7 @@ Prereqs:
   - pretrain: `data/cache/streams/{wiki,roam,primer}_{train,val}.bin + .meta.json`
   - sft: `data/cache/sft/{dolly,oasst1}_{train,val}.bin + .meta.json` (+ `.idx.npy` per split; missing idx defaults to hard error unless you set `allow_missing_idx=true`)
 - configs point to those cache dirs (`cache_dir`, `streams_cache_dir`).
-- `--device` accepts `cpu|mps` (runner auto-picks if omitted).
+- `--device` accepts `cpu|mps|cuda` (runner auto-detects if omitted: cuda > mps > cpu).
 - all defaults now live in `niels_gpt/settings.py`; `--config` is treated as overrides (legacy full configs still work but print a warning). To inspect the resolved config: `python -m train.run --phase pretrain --config configs/pretrain.json --print_config`.
 - guardrail: `python tools/audit_config_coverage.py` fails if hyperparameters or special tokens are hardcoded outside settings/config.
 
@@ -157,37 +164,41 @@ Commands:
 - Pretrain:
   ```bash
   python -m train.run --phase pretrain --config configs/pretrain.json \
-    [--device cpu|mps] \
+    [--device cpu|mps|cuda] \
     [--resume /path/to/ckpt.pt | --no-resume]
   ```
 - SFT (expects sft caches; optional `allow_missing_idx=true` in config to synthesize trivial idx):
   ```bash
   python -m train.run --phase sft --config configs/sft.json \
-    [--device cpu|mps] \
+    [--device cpu|mps|cuda] \
     [--resume /path/to/ckpt.pt | --no-resume]
   ```
 - Pipeline (runs pretrain, then sft init from pretrain best):
   ```bash
   python -m train.run --phase pipeline --config configs/pipeline.json \
-    [--device cpu|mps] \
+    [--device cpu|mps|cuda] \
     [--no-resume]  # recommended for fresh pipeline
   ```
 
 **Mixed Precision (AMP) & Activation Checkpointing:**
-- Add to `train_cfg` in config JSON:
+- AMP defaults to `"auto"` (device-aware):
+  - **CUDA**: enabled with fp16 (bf16 on Ampere+ GPUs) for ~2x speedup via Tensor Cores
+  - **MPS**: disabled (known stability issues cause loss divergence)
+  - **CPU**: disabled (no benefit)
+- Override in config JSON if needed:
   ```json
   {
-    "train_cfg": {
-      "amp": true,              // enable mixed precision (MPS only)
-      "amp_dtype": "fp16",      // "fp16" or "bf16"
-      "activation_checkpointing": false  // reduce memory via gradient checkpointing
+    "training": {
+      "pretrain": {
+        "amp": true,              // or false, or "auto" (default)
+        "amp_dtype": "fp16",      // "fp16" or "bf16"
+        "activation_checkpointing": false  // reduce memory via gradient checkpointing
+      }
     }
   }
   ```
-- AMP automatically disabled on CPU (only active on MPS)
-- Activation checkpointing trades ~20-30% speed for lower memory
-- To disable AMP if unstable: set `"amp": false` or use `--device cpu`
-- Training logs show: `device=mps, amp=True (fp16), activation_checkpointing=False, micro_B=16, accum_steps=4, effective_batch=64, params=...`
+- Activation checkpointing trades ~20-30% speed for lower memory (useful for large models on limited VRAM)
+- Training logs show: `device=cuda, amp=true (fp16), activation_checkpointing=False, micro_B=16, accum_steps=4, effective_batch=64, params=...`
 
 Checkpoint layout:
 - Phase-scoped histories:
@@ -443,7 +454,8 @@ flowchart TD
 - `validate_model_config_match` ensures resumed shapes match (V, T, C, L, H, d_ff, dropout, rope_theta).
 
 ### devices (`niels_gpt.device.get_device`)
-- returns `mps` if available on mac, else `cpu`. train CLI accepts `--device` to force (including cuda if you have it).
+- auto-detects best available device: `cuda` (NVIDIA GPU) > `mps` (Apple Silicon) > `cpu`
+- train CLI accepts `--device` to override (e.g., `--device cpu` to force CPU even when GPU available)
 
 ### primer generation (`tools/generate_primer.py`)
 - builds synthetic dialogues from templates + `data/public_facts.json`; writes `data/primer.generated.txt`. Dialogues use the same `system/user/assistant` line format with `<dialogue>` delimiter.
@@ -458,8 +470,8 @@ flowchart TD
 - `tests/`: pytest suite covering masking, batching, tokenizer, blocks, etc.
 
 ### expectations and limits
-- byte-level model (V=256, T=384, C=384, L=6, H=4 by default); still toy-quality; widen/deepen only if you accept more compute.
-- device auto-detect only covers mps/cpu; pass `--device cuda` yourself if you have a GPU.
+- small model (V=16000, T=512, C=384, L=8, H=6 by default); still toy-quality; widen/deepen only if you accept more compute.
+- device auto-detect covers cuda/mps/cpu; no manual override needed.
 - internet needed on first run for wikitext download; respects HF cache afterward.
 - training uses simple logging to stdout; no wandb/metrics piping.
 
@@ -476,8 +488,10 @@ flowchart TD
 - resume with `--resume checkpoints/latest.pt`; shape-critical config is validated on resume.
 
 ### hardware/perf notes
-- default model is small enough for CPU/MPS; for CUDA pass `--device cuda`.
+- default model fits on 8GB+ GPUs, Apple Silicon, or CPU (slower).
+- CUDA with AMP (auto-enabled) gives best performance via Tensor Cores.
 - batch size `B` and context `T` in config drive memory; lower them if you OOM.
+- use `python tools/bench_sweep.py` to find optimal config for your hardware.
 
 ### troubleshooting
 - wikitext download fails offline: pre-download via HF CLI or run once online; or set `allow_missing_sources=True`/`required_sources=()` in config to skip (quality drops).
@@ -485,6 +499,7 @@ flowchart TD
 - roam missing: create `data/.roam-data/` or remove from `enabled_sources`.
 - stream too short errors: your data must be at least `T+1` bytes per source; lower `T` or add data.
 - mps quirks: if you hit generator/device errors, rerun with `--device cpu`.
-- **AMP causes NaN losses**: disable AMP with `"amp": false` in config, or try `"amp_dtype": "bf16"` instead of fp16, or reduce learning rate.
+- **CUDA out of memory**: reduce `micro_B`, enable `activation_checkpointing`, or use smaller `T`. Run `bench_sweep.py` to find safe config.
+- **AMP causes NaN losses on MPS**: AMP is auto-disabled on MPS for this reason. If you forced `"amp": true`, set it back to `"auto"` or `false`.
 - **Out of memory with activation checkpointing**: reduce batch size `B` or increase `accum_steps` (keeps effective batch same but lower memory per step).
-- **AMP not being used on MPS**: check startup log; requires both `"amp": true` in config AND `device="mps"` (AMP auto-disabled on CPU).
+- **Checking GPU detection**: run `python -c "from niels_gpt.device import get_device; print(get_device())"` to verify.

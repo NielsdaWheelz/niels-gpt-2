@@ -98,16 +98,18 @@ naming matters: whatever key you put in `data.mix_pretrain` must match the direc
     "mix_pretrain": { "fineweb_edu": 0.6, "wikitext": 0.2, "roam": 0.1, "primer": 0.1 },
     "val_pretrain_source": "wikitext"
   },
-  "training": { "pretrain": { "total_steps": 1000, "micro_B": 16, "accum_steps": 4, "amp": true, "amp_dtype": "fp16" } }
+  "training": { "pretrain": { "total_steps": 1000, "micro_B": 16, "accum_steps": 4 } }
 }
 ```
+
+Note: AMP defaults to `"auto"` which enables on CUDA (with fp16), disables on MPS/CPU. No need to specify unless overriding.
 
 - sft override (uses dolly/oasst1 caches):
 
 ```json
 {
   "data": { "caches": { "sft_token_cache": "data/cache/sft" } },
-  "training": { "sft": { "micro_B": 8, "total_steps": 10000, "amp": true } }
+  "training": { "sft": { "micro_B": 8, "total_steps": 10000 } }
 }
 ```
 
@@ -141,9 +143,10 @@ Available profiles:
 - **pipeline-dev**, **pipeline-prod**: Two-phase pretrain→SFT
 
 Example commands:
-- pretrain: `python -m train.run --phase pretrain --profile dev --device mps`
-- sft: `python -m train.run --phase sft --profile dev-sft --device mps --resume checkpoints/latest.pt` (or `--no-resume` to start fresh)
-- pipeline: `python -m train.run --phase pipeline --profile pipeline-dev --device mps`
+- pretrain: `python -m train.run --phase pretrain --profile dev` (auto-detects cuda > mps > cpu)
+- sft: `python -m train.run --phase sft --profile dev-sft --resume checkpoints/latest.pt` (or `--no-resume` to start fresh)
+- pipeline: `python -m train.run --phase pipeline --profile pipeline-dev`
+- force specific device: add `--device cuda` or `--device mps` or `--device cpu`
 
 each run writes `runs/<run_id>/resolved_settings.json` plus checkpoints in `checkpoints/`.
 
@@ -190,10 +193,13 @@ convenience scripts for long-running training:
 ```bash
 # Overnight run (~8 hours, production models)
 # Assumes tokenizer and caches already exist
+# Device auto-detected (cuda > mps > cpu)
 ./scripts/run_overnight.sh
 
 # Or customize device
-DEVICE=cpu ./scripts/run_overnight.sh
+DEVICE=cuda ./scripts/run_overnight.sh  # force NVIDIA GPU
+DEVICE=mps ./scripts/run_overnight.sh   # force Apple Silicon
+DEVICE=cpu ./scripts/run_overnight.sh   # force CPU
 
 # Full pipeline including tokenizer and cache building
 # (only needed first time or when changing data)
@@ -208,4 +214,4 @@ what each script does:
 - `run_full_pipeline.sh`: optionally builds tokenizer + caches, then runs pipeline. controlled via env vars:
   - `SKIP_TOKENIZER=false`: rebuild tokenizer
   - `SKIP_CACHE=false`: rebuild caches
-  - `DEVICE=mps|cpu`: override device selection
+  - `DEVICE=cuda|mps|cpu`: override device selection (default: auto-detect)
