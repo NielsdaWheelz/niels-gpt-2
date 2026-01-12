@@ -24,6 +24,22 @@ RUN_TS="$(date +"%Y%m%d_%H%M%S")"
 LOG_FILE="$LOG_DIR/personal_pipeline_${RUN_TS}.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
+TOKENIZER_DIR="artifacts/tokenizer/v2"
+TOKENIZER_MODEL="${TOKENIZER_DIR}/spm.model"
+TOKENIZER_VOCAB="${TOKENIZER_DIR}/spm.vocab"
+TOKENIZER_META="${TOKENIZER_DIR}/tokenizer_meta.json"
+
+tokenizer_ready() {
+  if [ ! -f "$TOKENIZER_MODEL" ] || [ ! -f "$TOKENIZER_VOCAB" ] || [ ! -f "$TOKENIZER_META" ]; then
+    return 1
+  fi
+  python - <<'PY'
+from niels_gpt.tokenizer import get_default_tokenizer
+get_default_tokenizer()
+print("tokenizer validation ok")
+PY
+}
+
 echo "========================================"
 echo "Full Personal Pipeline"
 echo "========================================"
@@ -54,27 +70,35 @@ if [ ${#roam_files[@]} -eq 0 ]; then
 fi
 
 echo "==> Step 1/4: Train tokenizer"
-for attempt in $(seq 1 "$TOKENIZER_RETRIES"); do
-  echo "tokenizer attempt ${attempt}/${TOKENIZER_RETRIES}"
-  if python scripts/train_tokenizer.py \
-    --input_glob "data/.roam-data/**/*.md" \
-    --input_glob "data/primer.txt" \
-    --include_wikitext \
-    --fineweb_bytes 20000000 \
-    --out_dir artifacts/tokenizer/v2 \
-    --vocab_size 16000 \
-    --seed 42; then
-    echo "✓ Tokenizer trained"
-    break
-  fi
-  if [ "$attempt" -lt "$TOKENIZER_RETRIES" ]; then
-    echo "tokenizer failed; retrying in ${TOKENIZER_RETRY_DELAY}s..."
-    sleep "$TOKENIZER_RETRY_DELAY"
-  else
-    echo "error: tokenizer failed after ${TOKENIZER_RETRIES} attempts"
-    exit 1
-  fi
-done
+if tokenizer_ready; then
+  echo "✓ Tokenizer already present and valid; skipping"
+else
+  for attempt in $(seq 1 "$TOKENIZER_RETRIES"); do
+    echo "tokenizer attempt ${attempt}/${TOKENIZER_RETRIES}"
+    if python scripts/train_tokenizer.py \
+      --input_glob "data/.roam-data/**/*.md" \
+      --input_glob "data/primer.txt" \
+      --include_wikitext \
+      --fineweb_bytes 20000000 \
+      --out_dir "$TOKENIZER_DIR" \
+      --vocab_size 16000 \
+      --seed 42; then
+      echo "✓ Tokenizer trained"
+      break
+    fi
+    if tokenizer_ready; then
+      echo "✓ Tokenizer artifacts validate despite non-zero exit; continuing"
+      break
+    fi
+    if [ "$attempt" -lt "$TOKENIZER_RETRIES" ]; then
+      echo "tokenizer failed; retrying in ${TOKENIZER_RETRY_DELAY}s..."
+      sleep "$TOKENIZER_RETRY_DELAY"
+    else
+      echo "error: tokenizer failed after ${TOKENIZER_RETRIES} attempts"
+      exit 1
+    fi
+  done
+fi
 echo ""
 
 echo "==> Step 2/4: Build token caches"
