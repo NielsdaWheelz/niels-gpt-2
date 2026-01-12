@@ -11,10 +11,18 @@ cd "$REPO_ROOT"
 
 DEVICE="${DEVICE:-cuda}"          # cuda | mps | cpu | auto
 NO_RESUME="${NO_RESUME:-false}"   # set to true for a clean run
+TOKENIZER_RETRIES="${TOKENIZER_RETRIES:-3}"
+TOKENIZER_RETRY_DELAY="${TOKENIZER_RETRY_DELAY:-10}"
+LOG_DIR="${LOG_DIR:-logs}"
 
 PRETRAIN_CONFIG="configs/personal-pretrain.json"
 SFT_CONFIG="configs/personal-sft.json"
 PIPELINE_CONFIG="configs/pipeline-personal.json"
+
+mkdir -p "$LOG_DIR"
+RUN_TS="$(date +"%Y%m%d_%H%M%S")"
+LOG_FILE="$LOG_DIR/personal_pipeline_${RUN_TS}.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "========================================"
 echo "Full Personal Pipeline"
@@ -24,6 +32,7 @@ echo "No-resume: $NO_RESUME"
 echo "Pretrain config: $PRETRAIN_CONFIG"
 echo "SFT config: $SFT_CONFIG"
 echo "Pipeline config: $PIPELINE_CONFIG"
+echo "Log file: $LOG_FILE"
 echo "========================================"
 echo ""
 
@@ -45,15 +54,27 @@ if [ ${#roam_files[@]} -eq 0 ]; then
 fi
 
 echo "==> Step 1/4: Train tokenizer"
-python scripts/train_tokenizer.py \
-  --input_glob "data/.roam-data/**/*.md" \
-  --input_glob "data/primer.txt" \
-  --include_wikitext \
-  --fineweb_bytes 20000000 \
-  --out_dir artifacts/tokenizer/v2 \
-  --vocab_size 16000 \
-  --seed 42
-echo "✓ Tokenizer trained"
+for attempt in $(seq 1 "$TOKENIZER_RETRIES"); do
+  echo "tokenizer attempt ${attempt}/${TOKENIZER_RETRIES}"
+  if python scripts/train_tokenizer.py \
+    --input_glob "data/.roam-data/**/*.md" \
+    --input_glob "data/primer.txt" \
+    --include_wikitext \
+    --fineweb_bytes 20000000 \
+    --out_dir artifacts/tokenizer/v2 \
+    --vocab_size 16000 \
+    --seed 42; then
+    echo "✓ Tokenizer trained"
+    break
+  fi
+  if [ "$attempt" -lt "$TOKENIZER_RETRIES" ]; then
+    echo "tokenizer failed; retrying in ${TOKENIZER_RETRY_DELAY}s..."
+    sleep "$TOKENIZER_RETRY_DELAY"
+  else
+    echo "error: tokenizer failed after ${TOKENIZER_RETRIES} attempts"
+    exit 1
+  fi
+done
 echo ""
 
 echo "==> Step 2/4: Build token caches"
