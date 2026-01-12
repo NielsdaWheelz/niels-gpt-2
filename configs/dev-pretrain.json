@@ -22,10 +22,7 @@
       "min_lr": 0.00003,
       "grad_clip": 1.0,
       "accum_steps": 4,
-      "log_every": 50,
-      "amp": false,
-      "amp_dtype": "fp32",
-      "activation_checkpointing": false
+      "log_every": 50
     }
   },
   "data": {

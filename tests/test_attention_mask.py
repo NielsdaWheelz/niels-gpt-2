@@ -11,7 +11,7 @@ from niels_gpt.model.blocks import CausalSelfAttention
 
 @pytest.fixture
 def device():
-    """Return available device (mps or cpu, never cuda)."""
+    """Return available device (cuda, mps, or cpu)."""
     return get_device()
 
 

@@ -14,8 +14,6 @@
       "total_steps": 200,
       "eval_every": 50,
       "ckpt_every": 200,
-      "amp": false,
-      "amp_dtype": "fp32",
       "activation_checkpointing": true,
       "base_lr": 0.0003,
       "warmup_steps": 40,

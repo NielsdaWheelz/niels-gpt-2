@@ -30,7 +30,7 @@ def test_imports_work():
 def test_device_is_valid():
     """Test that get_device returns a valid device."""
     device = get_device()
-    assert device in ("mps", "cpu"), f"device must be 'mps' or 'cpu', got {device!r}"
+    assert device in ("cuda", "mps", "cpu"), f"device must be 'cuda', 'mps', or 'cpu', got {device!r}"
 
 
 def test_seed_repeatability():

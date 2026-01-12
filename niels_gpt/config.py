@@ -1,7 +1,7 @@
 """Configuration dataclasses."""
 
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class TrainConfig:
     min_lr: float
     grad_clip: float
     accum_steps: int
-    amp: bool
+    amp: bool | Literal["auto"]
     amp_dtype: str
     activation_checkpointing: bool
     optimizer: str

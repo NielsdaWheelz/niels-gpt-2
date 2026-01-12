@@ -4,7 +4,7 @@
     4,
     5
   ],
-  "generated_at_utc": "2025-12-18T05:29:41.252936+00:00",
+  "generated_at_utc": "2026-01-12T21:32:27.405797+00:00",
   "model_cfg": {
     "C": 384,
     "H": 6,
@@ -64,10 +64,10 @@
     "data": {
       "allow_missing_idx": false,
       "caches": {
-        "pretrain_token_cache": "/Users/nnandal/Documents/code/niels-gpt/data/cache/pretrain",
-        "raw_cache_dir": "/Users/nnandal/Documents/code/niels-gpt/data/cache/hf",
-        "sft_token_cache": "/Users/nnandal/Documents/code/niels-gpt/data/cache/sft",
-        "streams_token_cache": "/Users/nnandal/Documents/code/niels-gpt/data/cache/streams"
+        "pretrain_token_cache": "/Users/nnandal/Documents/code/niels-gpt-2/data/cache/pretrain",
+        "raw_cache_dir": "/Users/nnandal/Documents/code/niels-gpt-2/data/cache/hf",
+        "sft_token_cache": "/Users/nnandal/Documents/code/niels-gpt-2/data/cache/sft",
+        "streams_token_cache": "/Users/nnandal/Documents/code/niels-gpt-2/data/cache/streams"
       },
       "chunking": {
         "pack_to_T": true,
@@ -126,7 +126,7 @@
       },
       "primer": {
         "delimiter": "\n\n<dialogue>\n\n",
-        "path": "/Users/nnandal/Documents/code/niels-gpt/data/primer.txt",
+        "path": "/Users/nnandal/Documents/code/niels-gpt-2/data/primer.txt",
         "seed": 42,
         "val_frac": 0.1
       },
@@ -136,7 +136,7 @@
           "stride": 1
         },
         "glob_pattern": "**/*.md",
-        "root_dir": "/Users/nnandal/Documents/code/niels-gpt/.roam-data",
+        "root_dir": "/Users/nnandal/Documents/code/niels-gpt-2/.roam-data",
         "split_seed": 42,
         "val_frac": 0.1
       },
@@ -206,7 +206,7 @@
         "sys": 3,
         "usr": 4
       },
-      "model_path": "/Users/nnandal/Documents/code/niels-gpt/artifacts/tokenizer/v2/spm.model",
+      "model_path": "/Users/nnandal/Documents/code/niels-gpt-2/artifacts/tokenizer/v2/spm.model",
       "normalization": "nfkc",
       "special_tokens": {
         "asst": "<|ngpt_asst_84a5023f67d74cf29cc4001becde983c|>",
@@ -214,7 +214,7 @@
         "sys": "<|ngpt_sys_84a5023f67d74cf29cc4001becde983c|>",
         "usr": "<|ngpt_usr_84a5023f67d74cf29cc4001becde983c|>"
       },
-      "tokenizer_sha256": "a7ccda70ba310e6571295e6833dd6c340a906c5506cb1391ca0aeb7aba20c762",
+      "tokenizer_sha256": null,
       "tokenizer_type": "bpe",
       "vocab_size": 16000
     },
@@ -222,7 +222,7 @@
       "pretrain": {
         "accum_steps": 1,
         "activation_checkpointing": false,
-        "amp": false,
+        "amp": "auto",
         "amp_dtype": "fp16",
         "base_lr": 0.0003,
         "best_metric": "pretrain_val_loss",
@@ -253,7 +253,7 @@
       "sft": {
         "accum_steps": 1,
         "activation_checkpointing": false,
-        "amp": false,
+        "amp": "auto",
         "amp_dtype": "fp16",
         "base_lr": 0.0001,
         "best_metric": "sft_val_loss",
@@ -277,8 +277,8 @@
         "optimizer": "adamw",
         "save_best": true,
         "seed": 42,
-        "total_steps": 6000,
-        "warmup_steps": 120,
+        "total_steps": 1889,
+        "warmup_steps": 189,
         "weight_decay": 0.05
       }
     }
@@ -303,8 +303,8 @@
       "pad_id": -1,
       "unk_id": 0
     },
-    "model_path": "/Users/nnandal/Documents/code/niels-gpt/artifacts/tokenizer/v2/spm.model",
-    "sha256": "a7ccda70ba310e6571295e6833dd6c340a906c5506cb1391ca0aeb7aba20c762",
+    "model_path": "/Users/nnandal/Documents/code/niels-gpt-2/artifacts/tokenizer/v2/spm.model",
+    "sha256": "70f78b3485714fa37aaaf98ba7dae395d0605c91b9f106f0fc27c96bead990e5",
     "special_tokens": {
       "asst": "<|ngpt_asst_84a5023f67d74cf29cc4001becde983c|>",
       "eot": "<|ngpt_eot_84a5023f67d74cf29cc4001becde983c|>",
@@ -316,7 +316,7 @@
     "B": 16,
     "accum_steps": 1,
     "activation_checkpointing": false,
-    "amp": false,
+    "amp": "auto",
     "amp_dtype": "fp16",
     "base_lr": 0.0003,
     "best_metric": "pretrain_val_loss",

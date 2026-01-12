@@ -6,10 +6,7 @@
       "total_steps": 1889,
       "eval_every": 378,
       "ckpt_every": 945,
-      "warmup_steps": 189,
-      "amp": false,
-      "amp_dtype": "fp32",
-      "activation_checkpointing": false
+      "warmup_steps": 189
     }
   },
   "data": {
