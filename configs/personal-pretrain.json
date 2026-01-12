@@ -1,0 +1,33 @@
+{
+  "model": {
+    "V": 16000,
+    "T": 512,
+    "C": 384,
+    "L": 8,
+    "H": 6,
+    "d_ff": 1152
+  },
+  "training": {
+    "pretrain": {
+      "micro_B": 16,
+      "accum_steps": 4,
+      "total_steps": 100000,
+      "eval_every": 1000,
+      "ckpt_every": 5000,
+      "base_lr": 0.0003,
+      "warmup_steps": 2000,
+      "min_lr": 0.00003,
+      "grad_clip": 1.0,
+      "amp": "auto",
+      "activation_checkpointing": false
+    }
+  },
+  "data": {
+    "mix_pretrain": {
+      "fineweb_edu": 0.70,
+      "wikitext": 0.20,
+      "roam": 0.10
+    },
+    "val_pretrain_source": "wikitext"
+  }
+}
