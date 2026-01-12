@@ -8,10 +8,7 @@
       "ckpt_every": 1111,
       "base_lr": 0.0001,
       "warmup_steps": 222,
-      "min_lr": 0.00001,
-      "amp": false,
-      "amp_dtype": "fp32",
-      "activation_checkpointing": false
+      "min_lr": 0.00001
     }
   },
   "data": {

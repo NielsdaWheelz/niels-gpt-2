@@ -28,12 +28,13 @@ _BENCH = _SETTINGS.benchmark
 
 
 def get_device(device_arg: str) -> str:
-    """Resolve device string."""
+    """Resolve device string (cuda > mps > cpu)."""
     if device_arg == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
         if torch.backends.mps.is_available():
             return "mps"
-        else:
-            return "cpu"
+        return "cpu"
     return device_arg
 
 
@@ -170,7 +171,7 @@ def run_sweep(args: argparse.Namespace) -> None:
     # Load grid
     if args.grid == "preset":
         from tools.bench_configs import get_default_grid
-        grid = get_default_grid()
+        grid = get_default_grid(device)
     else:
         with open(args.grid, "r") as f:
             grid = json.load(f)

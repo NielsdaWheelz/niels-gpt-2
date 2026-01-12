@@ -29,13 +29,13 @@ _PRETRAIN = _SETTINGS.training.pretrain
 
 
 def get_amp_context(device: str, amp: bool, amp_dtype: str) -> Any:
-    """Return autocast context for MPS when amp is enabled, else nullcontext."""
-    if not amp or device != "mps":
+    """Return autocast context for MPS/CUDA when amp is enabled, else nullcontext."""
+    if not amp or device not in {"mps", "cuda"}:
         return contextlib.nullcontext()
 
     dtype_map = {"fp16": torch.float16, "bf16": torch.bfloat16}
     dtype = dtype_map[amp_dtype]
-    return torch.autocast(device_type="mps", dtype=dtype)
+    return torch.autocast(device_type=device, dtype=dtype)
 
 
 def synchronize_device(device: str) -> None:

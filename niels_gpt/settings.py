@@ -312,8 +312,8 @@ class TrainPhaseSettings(BaseModel):
     decay_embeddings: bool = True
 
     grad_clip: float = 1.0
-    amp: bool = False
-    amp_dtype: Literal["fp16", "bf16", "fp32"] = "fp32"
+    amp: bool | Literal["auto"] = "auto"
+    amp_dtype: Literal["fp16", "bf16", "fp32"] = "fp16"
     activation_checkpointing: bool = False
 
     save_best: bool = True

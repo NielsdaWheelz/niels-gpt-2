@@ -20,8 +20,8 @@ from train.sft import run_sft
 def _validate_device(device: str | None) -> str | None:
     if device is None:
         return None
-    if device not in {"cpu", "mps"}:
-        raise ValueError("--device must be one of {cpu,mps}")
+    if device not in {"cpu", "mps", "cuda"}:
+        raise ValueError("--device must be one of {cpu, mps, cuda}")
     return device
 
 
@@ -52,7 +52,7 @@ examples:
         help="named profile (e.g., 'smoke-pretrain', 'dev', 'prod'). Use --list-profiles to see all options.",
     )
     parser.add_argument("--config", help="path to custom config json (overrides --profile)")
-    parser.add_argument("--device", default=None, help="cpu or mps (default: auto)")
+    parser.add_argument("--device", default=None, help="cpu, mps, or cuda (default: auto)")
     parser.add_argument("--resume", default=None, help="checkpoint path to resume from")
     parser.add_argument("--no-resume", action="store_true", help="disable auto-resume from checkpoints/latest.pt")
     parser.add_argument("--print_config", action="store_true", help="print resolved settings and exit")

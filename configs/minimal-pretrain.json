@@ -1,11 +1,3 @@
 {
-  "model": { "V": 256 },
-  "training": {
-    "pretrain": {
-      "amp": false,
-      "amp_dtype": "fp32",
-      "activation_checkpointing": false
-    }
-  }
+  "model": { "V": 256 }
 }
-
