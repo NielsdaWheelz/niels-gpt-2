@@ -87,7 +87,7 @@ docs/_build/
 
 # ML-specific
 # Large datasets and caches
-data/
+/data/
 # Model checkpoints and weights
 checkpoints/
 # Preprocessing artifacts
